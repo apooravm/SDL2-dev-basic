@@ -1,6 +1,8 @@
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_error.h>
 #include <SDL2/SDL_events.h>
+#include <SDL2/SDL_keycode.h>
+#include <SDL2/SDL_mouse.h>
 #include <SDL2/SDL_rect.h>
 #include <SDL2/SDL_surface.h>
 #include <SDL2/SDL_timer.h>
@@ -22,6 +24,10 @@ struct Circle {
   double r;
 };
 
+typedef struct {
+  double x, y, z;
+} Vec3;
+
 // homogeneous 4D vector
 typedef struct {
   double x, y, z, w;
@@ -41,6 +47,12 @@ typedef struct {
   double m[4][4];
 } Mat4;
 
+typedef struct {
+  Vec3 pos;
+  double pitch;
+  double yaw;
+} Camera;
+
 int D_DIST = 1;
 int W_DEF = 1;
 double ASPECT_RATIO;
@@ -51,6 +63,7 @@ double fNear = 0.1f;
 double fFar = 1000.0f;
 double fFov = 90.0f;
 double fFovRad;
+Camera camera = {{0.0, 0.0, 1.9}, 0.0, 0.0};
 Mat4 projection_matrix = {0};
 
 Mesh *SquareMesh;
@@ -291,6 +304,16 @@ void translate_triangle(Triangle *tri, double val) {
   }
 }
 
+void camera_movement(Triangle *tri) {
+  for (int j = 0; j < 3; j++) {
+    tri->vecs[j].x += camera.pos.x;
+    tri->vecs[j].y += camera.pos.y;
+    tri->vecs[j].z += camera.pos.z;
+  }
+
+  rotate_triangle(tri, -camera.yaw, -camera.pitch, 0.0);
+}
+
 void init_projection_mat() {
   fFovRad = 1.0f / tanf(fFov * 0.5f / 180.0f * M_PI);
   ASPECT_RATIO = (double)WIDTH / (double)HEIGHT;
@@ -341,6 +364,10 @@ int main() {
   SDL_Surface *surface = SDL_GetWindowSurface(window);
   SURFACE = surface;
 
+  // hides cursor, locks it to the window and gives relative motion, xrel and
+  // yrel
+  SDL_SetRelativeMouseMode(SDL_TRUE);
+
   struct Circle circle = {200, 0, 80};
 
   int running = 1;
@@ -358,16 +385,63 @@ int main() {
   Uint32 frameStart;
   int frameTime;
 
+  Uint64 last = SDL_GetPerformanceCounter();
+  float deltaTime = 0.0f;
+  float mouseSensitivity = 0.0025f;
+
   while (running) {
     while (SDL_PollEvent(&e)) {
       if (e.type == SDL_QUIT) {
         running = 0;
+      }
+
+      switch (e.type) {
+      case SDL_KEYDOWN:
+        if (e.key.keysym.sym == SDLK_ESCAPE) {
+          running = 0;
+        }
+        break;
+      case SDL_QUIT:
+        running = 0;
+        break;
+
+      case SDL_MOUSEMOTION:
+        camera.yaw += e.motion.xrel * mouseSensitivity;
+        camera.pitch -= e.motion.yrel * mouseSensitivity;
+
+        if (camera.pitch > 1.55f)
+          camera.pitch = 1.55f;
+        if (camera.pitch < -1.55f)
+          camera.pitch = -1.55f;
+
+        break;
       }
     }
 
     SDL_FillRect(surface, NULL, SDL_MapRGB(surface->format, 0, 0, 0));
 
     frameStart = SDL_GetTicks();
+
+    const Uint8 *keys = SDL_GetKeyboardState(NULL);
+
+    Uint64 now = SDL_GetPerformanceCounter();
+    deltaTime = (float)(now - last) / SDL_GetPerformanceFrequency();
+    last = now;
+
+    float moveSpeed = 5.0f * deltaTime;
+
+    if (keys[SDL_SCANCODE_W]) {
+      camera.pos.z -= moveSpeed;
+    }
+    if (keys[SDL_SCANCODE_S]) {
+      camera.pos.z += moveSpeed;
+    }
+    if (keys[SDL_SCANCODE_A]) {
+      camera.pos.x -= moveSpeed;
+    }
+    if (keys[SDL_SCANCODE_D]) {
+      camera.pos.x += moveSpeed;
+    }
 
     double next_py = circle.y + move_rate;
     if (next_py < 480) {
@@ -376,8 +450,9 @@ int main() {
 
     for (int i = 0; i < CubeMesh->numTris; i++) {
       Triangle tri_updated = CubeMesh->tris[i];
-      rotate_triangle(&tri_updated, 0, angle * 0.5, angle * 0.33);
+      rotate_triangle(&tri_updated, 0, 0 * 0.5, 0 * 0.33);
       translate_triangle(&tri_updated, 1.0);
+      camera_movement(&tri_updated);
       project_triangle(&tri_updated);
       normalise_triangle(&tri_updated);
       draw_triangle(&tri_updated);
@@ -397,3 +472,39 @@ int main() {
   // SDL_Delay(5000);
   return 0;
 }
+
+/**
+      case SDL_KEYDOWN:
+        if (e.key.keysym.sym == SDLK_ESCAPE) {
+          running = 0;
+        }
+
+        if (e.key.keysym.sym == SDLK_w) {
+          printf("w key pressed\n");
+        }
+        break;
+
+      case SDL_KEYUP:
+        if (e.key.keysym.sym == SDLK_w) {
+          printf("w key released\n");
+        }
+        break;
+
+      case SDL_MOUSEMOTION:
+        printf("Mouse moved: x=%d y=%d | dx=%d dy=%d\n", e.motion.x, e.motion.y,
+               e.motion.xrel, e.motion.yrel);
+        break;
+
+      case SDL_MOUSEBUTTONDOWN:
+        if (e.button.button == SDL_BUTTON_LEFT) {
+          printf("Left mouse button pressed at %d, %d\n", e.button.x,
+                 e.button.y);
+        }
+        break;
+
+      case SDL_MOUSEBUTTONUP:
+        if (e.button.button == SDL_BUTTON_LEFT) {
+          printf("Left mouse button released\n");
+        }
+        break;
+        **/
