@@ -4,6 +4,7 @@
 #include <SDL2/SDL_keycode.h>
 #include <SDL2/SDL_mouse.h>
 #include <SDL2/SDL_rect.h>
+#include <SDL2/SDL_scancode.h>
 #include <SDL2/SDL_surface.h>
 #include <SDL2/SDL_timer.h>
 #include <SDL2/SDL_video.h>
@@ -51,6 +52,10 @@ typedef struct {
     Vec3 pos;
     double pitch;
     double yaw;
+
+    Vec3 forward;
+    Vec3 right;
+    Vec3 up;
 } Camera;
 
 int D_DIST = 1;
@@ -63,7 +68,7 @@ double fNear = 0.1f;
 double fFar = 1000.0f;
 double fFov = 90.0f;
 double fFovRad;
-Camera camera = {{0.0, 0.0, 1.9}, 0.0, 0.0};
+Camera camera = {{0.0, 0.0, 1.9}, 0.0, 0.0, 0.0, 0.0, 0.0};
 Mat4 projection_matrix = {0};
 
 Mesh *SquareMesh;
@@ -352,6 +357,59 @@ void normalise_triangle(Triangle *tri) {
     }
 }
 
+static Vec3 camera_forward(double yaw, double pitch) {
+    Vec3 f;
+    f.x = sinf(yaw);
+    f.y = 0.0f; // FPS-style: no vertical movement
+                // f.y = sinf(pitch);
+    f.z = cosf(yaw);
+    return f;
+}
+
+static Vec3 camera_right(float yaw) {
+    Vec3 r;
+    r.x = cosf(yaw);
+    r.y = 0.0f;
+    r.z = -sinf(yaw);
+    return r;
+}
+
+Vec3 vec3_add(Vec3 a, Vec3 b) {
+    return (Vec3){a.x + b.x, a.y + b.y, a.z + b.z};
+}
+
+Vec3 vec3_sub(Vec3 a, Vec3 b) {
+    return (Vec3){a.x - b.x, a.y - b.y, a.z - b.z};
+}
+
+Vec3 vec3_scale(Vec3 v, float s) { return (Vec3){v.x * s, v.y * s, v.z * s}; }
+
+float dot(Vec3 a, Vec3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+
+Vec3 cross2(Vec3 a, Vec3 b) {
+    return (Vec3){a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z,
+                  a.x * b.y - a.y * b.x};
+}
+
+Vec3 normalize2(Vec3 v) {
+    float len = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
+    if (len == 0.0f)
+        return v;
+
+    return (Vec3){v.x / len, v.y / len, v.z / len};
+}
+
+void update_camera_basis() {
+    Vec3 forward = {cosf(camera.pitch) * sinf(camera.yaw), sinf(camera.pitch),
+                    cosf(camera.pitch) * cosf(camera.yaw)};
+    camera.forward = normalize2(forward);
+
+    Vec3 world_up = {0, 1, 0};
+
+    camera.right = normalize2(cross2(world_up, camera.forward));
+    camera.up = cross2(camera.forward, camera.right);
+}
+
 int main() {
     SDL_Init(SDL_INIT_VIDEO);
     // window = NULL if SDL_CreateWindow throws error
@@ -391,6 +449,7 @@ int main() {
     Uint64 last = SDL_GetPerformanceCounter();
     float deltaTime = 0.0f;
     float mouseSensitivity = 0.0025f;
+    float pitch_yaw_sensitivity = 0.25f;
 
     while (running) {
         while (SDL_PollEvent(&e)) {
@@ -409,6 +468,7 @@ int main() {
                 break;
 
             case SDL_MOUSEMOTION:
+                break;
                 camera.yaw += e.motion.xrel * mouseSensitivity;
                 camera.pitch -= e.motion.yrel * mouseSensitivity;
 
@@ -431,19 +491,47 @@ int main() {
         deltaTime = (float)(now - last) / SDL_GetPerformanceFrequency();
         last = now;
 
+		update_camera_basis();
+        // Vec3 forward = camera_forward(camera.yaw, camera.pitch);
+        // Vec3 right = camera_right(camera.yaw);
+
         float moveSpeed = 5.0f * deltaTime;
 
         if (keys[SDL_SCANCODE_W]) {
-            camera.pos.z -= moveSpeed;
+            camera.pos =
+                vec3_add(camera.pos, vec3_scale(camera.forward, moveSpeed));
+            // camera.pos.x -= forward.x * moveSpeed;
+            // camera.pos.z -= forward.z * moveSpeed;
         }
         if (keys[SDL_SCANCODE_S]) {
-            camera.pos.z += moveSpeed;
+            camera.pos =
+                vec3_sub(camera.pos, vec3_scale(camera.forward, moveSpeed));
+            // camera.pos.x += forward.x * moveSpeed;
+            // camera.pos.z += forward.z * moveSpeed;
         }
         if (keys[SDL_SCANCODE_A]) {
-            camera.pos.x -= moveSpeed;
+            camera.pos =
+                vec3_sub(camera.pos, vec3_scale(camera.right, moveSpeed));
+            // camera.pos.x -= right.x * moveSpeed;
+            // camera.pos.z -= right.z * moveSpeed;
         }
         if (keys[SDL_SCANCODE_D]) {
-            camera.pos.x += moveSpeed;
+            camera.pos =
+                vec3_add(camera.pos, vec3_scale(camera.right, moveSpeed));
+            // camera.pos.x += right.x * moveSpeed;
+            // camera.pos.z += right.z * moveSpeed;
+        }
+        if (keys[SDL_SCANCODE_I]) {
+            camera.yaw += moveSpeed * pitch_yaw_sensitivity;
+        }
+        if (keys[SDL_SCANCODE_K]) {
+            // camera.yaw += moveSpeed * pitch_yaw_sensitivity;
+            camera.pitch -= moveSpeed * pitch_yaw_sensitivity;
+
+            if (camera.pitch > 1.55f)
+                camera.pitch = 1.55f;
+            if (camera.pitch < -1.55f)
+                camera.pitch = -1.55f;
         }
 
         double next_py = circle.y + move_rate;
@@ -455,7 +543,25 @@ int main() {
             Triangle tri_updated = CubeMesh->tris[i];
             rotate_triangle(&tri_updated, 0, 0 * 0.5, 0 * 0.33);
             translate_triangle(&tri_updated, 1.0);
-            camera_movement(&tri_updated);
+            // camera_movement(&tri_updated);
+            // APPLY CAMERA TRANSFORM PER VERTEX
+            for (int v = 0; v < 3; v++) {
+                Vec3 world = {tri_updated.vecs[v].x, tri_updated.vecs[v].y,
+                              tri_updated.vecs[v].z};
+
+                Vec3 to_camera = vec3_sub(world, camera.pos);
+
+                Vec3 view;
+                view.x = dot(to_camera, camera.right);
+                view.y = dot(to_camera, camera.up);
+                view.z = dot(to_camera, camera.forward);
+
+                tri_updated.vecs[v].x = view.x;
+                tri_updated.vecs[v].y = view.y;
+                tri_updated.vecs[v].z = view.z;
+                // w stays the same
+            }
+
             project_triangle(&tri_updated);
             normalise_triangle(&tri_updated);
             draw_triangle(&tri_updated);
