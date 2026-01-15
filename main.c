@@ -7,6 +7,7 @@
 #include <SDL2/SDL_scancode.h>
 #include <SDL2/SDL_surface.h>
 #include <SDL2/SDL_timer.h>
+#include <SDL2/SDL_version.h>
 #include <SDL2/SDL_video.h>
 #include <math.h>
 #include <stdio.h>
@@ -427,7 +428,12 @@ int main() {
 
     // hides cursor, locks it to the window and gives relative motion, xrel and
     // yrel
-    SDL_SetRelativeMouseMode(SDL_TRUE);
+    SDL_SetRelativeMouseMode(SDL_TRUE);  // FPS mode
+    SDL_SetWindowGrab(window, SDL_TRUE); // Optional but recommended
+    SDL_ShowCursor(SDL_DISABLE);
+    if (SDL_SetRelativeMouseMode(SDL_TRUE) != 0) {
+        printf("Relative mode failed: %s\n", SDL_GetError());
+    }
 
     struct Circle circle = {200, 0, 80};
 
@@ -437,7 +443,7 @@ int main() {
 
     Vec4 v1 = {0.5, 0, 1, 1};
 
-    CubeMesh = get_cube(0, 0, 0, 0.4);
+    CubeMesh = get_cube(0, 0, 0, 1);
     double angle = 120.0f;
 
     const int FPS = 60;
@@ -448,7 +454,7 @@ int main() {
 
     Uint64 last = SDL_GetPerformanceCounter();
     float deltaTime = 0.0f;
-    float mouseSensitivity = 0.0025f;
+    float mouseSensitivity = 0.0030f;
     float pitch_yaw_sensitivity = 0.25f;
 
     while (running) {
@@ -468,7 +474,7 @@ int main() {
                 break;
 
             case SDL_MOUSEMOTION:
-                break;
+                // break;
                 camera.yaw += e.motion.xrel * mouseSensitivity;
                 camera.pitch -= e.motion.yrel * mouseSensitivity;
 
@@ -491,7 +497,7 @@ int main() {
         deltaTime = (float)(now - last) / SDL_GetPerformanceFrequency();
         last = now;
 
-		update_camera_basis();
+        update_camera_basis();
         // Vec3 forward = camera_forward(camera.yaw, camera.pitch);
         // Vec3 right = camera_right(camera.yaw);
 
@@ -499,13 +505,13 @@ int main() {
 
         if (keys[SDL_SCANCODE_W]) {
             camera.pos =
-                vec3_add(camera.pos, vec3_scale(camera.forward, moveSpeed));
+                vec3_sub(camera.pos, vec3_scale(camera.forward, moveSpeed));
             // camera.pos.x -= forward.x * moveSpeed;
             // camera.pos.z -= forward.z * moveSpeed;
         }
         if (keys[SDL_SCANCODE_S]) {
             camera.pos =
-                vec3_sub(camera.pos, vec3_scale(camera.forward, moveSpeed));
+                vec3_add(camera.pos, vec3_scale(camera.forward, moveSpeed));
             // camera.pos.x += forward.x * moveSpeed;
             // camera.pos.z += forward.z * moveSpeed;
         }
@@ -541,7 +547,7 @@ int main() {
 
         for (int i = 0; i < CubeMesh->numTris; i++) {
             Triangle tri_updated = CubeMesh->tris[i];
-            rotate_triangle(&tri_updated, 0, 0 * 0.5, 0 * 0.33);
+            rotate_triangle(&tri_updated, 0.0, 0.0 * 0.5, 0 * 0.33);
             translate_triangle(&tri_updated, 1.0);
             // camera_movement(&tri_updated);
             // APPLY CAMERA TRANSFORM PER VERTEX
