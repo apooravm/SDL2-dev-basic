@@ -446,6 +446,12 @@ int main() {
     CubeMesh = get_cube(0, 0, 0, 1);
     double angle = 120.0f;
 
+    Mesh *CubeMesh2 = get_cube(0, 1.2, 0, 1);
+
+    Mesh *objects[2];
+    objects[0] = CubeMesh;
+    objects[1] = CubeMesh2;
+
     const int FPS = 60;
     const int frameDelay = 1000 / FPS;
 
@@ -527,6 +533,18 @@ int main() {
             // camera.pos.x += right.x * moveSpeed;
             // camera.pos.z += right.z * moveSpeed;
         }
+        if (keys[SDL_SCANCODE_O]) {
+            camera.yaw -= moveSpeed * pitch_yaw_sensitivity;
+        }
+        if (keys[SDL_SCANCODE_L]) {
+            // camera.yaw += moveSpeed * pitch_yaw_sensitivity;
+            camera.pitch += moveSpeed * pitch_yaw_sensitivity;
+
+            if (camera.pitch > 1.55f)
+                camera.pitch = 1.55f;
+            if (camera.pitch < -1.55f)
+                camera.pitch = -1.55f;
+        }
         if (keys[SDL_SCANCODE_I]) {
             camera.yaw += moveSpeed * pitch_yaw_sensitivity;
         }
@@ -545,32 +563,35 @@ int main() {
             circle.y = next_py;
         }
 
-        for (int i = 0; i < CubeMesh->numTris; i++) {
-            Triangle tri_updated = CubeMesh->tris[i];
-            rotate_triangle(&tri_updated, 0.0, 0.0 * 0.5, 0 * 0.33);
-            translate_triangle(&tri_updated, 1.0);
-            // camera_movement(&tri_updated);
-            // APPLY CAMERA TRANSFORM PER VERTEX
-            for (int v = 0; v < 3; v++) {
-                Vec3 world = {tri_updated.vecs[v].x, tri_updated.vecs[v].y,
-                              tri_updated.vecs[v].z};
+        for (int i = 0; i < 2; i++) {
+            Mesh *mesh = objects[i];
+            for (int i = 0; i < mesh->numTris; i++) {
+                Triangle tri_updated = mesh->tris[i];
+                rotate_triangle(&tri_updated, 0, 0.0 * 0.5, 0 * 0.33);
+                translate_triangle(&tri_updated, 1.0);
+                // camera_movement(&tri_updated);
+                // APPLY CAMERA TRANSFORM PER VERTEX
+                for (int v = 0; v < 3; v++) {
+                    Vec3 world = {tri_updated.vecs[v].x, tri_updated.vecs[v].y,
+                                  tri_updated.vecs[v].z};
 
-                Vec3 to_camera = vec3_sub(world, camera.pos);
+                    Vec3 to_camera = vec3_sub(world, camera.pos);
 
-                Vec3 view;
-                view.x = dot(to_camera, camera.right);
-                view.y = dot(to_camera, camera.up);
-                view.z = dot(to_camera, camera.forward);
+                    Vec3 view;
+                    view.x = dot(to_camera, camera.right);
+                    view.y = dot(to_camera, camera.up);
+                    view.z = dot(to_camera, camera.forward);
 
-                tri_updated.vecs[v].x = view.x;
-                tri_updated.vecs[v].y = view.y;
-                tri_updated.vecs[v].z = view.z;
-                // w stays the same
+                    tri_updated.vecs[v].x = view.x;
+                    tri_updated.vecs[v].y = view.y;
+                    tri_updated.vecs[v].z = view.z;
+                    // w stays the same
+                }
+
+                project_triangle(&tri_updated);
+                normalise_triangle(&tri_updated);
+                draw_triangle(&tri_updated);
             }
-
-            project_triangle(&tri_updated);
-            normalise_triangle(&tri_updated);
-            draw_triangle(&tri_updated);
         }
 
         angle += 0.02;
