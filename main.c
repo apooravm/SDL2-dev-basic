@@ -71,6 +71,7 @@ double fFov = 90.0f;
 double fFovRad;
 Camera camera = {{0.0, 0.0, 1.9}, 0.0, 0.0, 0.0, 0.0, 0.0};
 Mat4 projection_matrix = {0};
+Mat4 LOOKAT_MTX = {0}; // lookat matrix
 
 Mesh *SquareMesh;
 Mesh *CubeMesh;
@@ -313,14 +314,12 @@ void translate_triangle(Triangle *tri, double val) {
     }
 }
 
-void camera_movement(Triangle *tri) {
-    for (int j = 0; j < 3; j++) {
-        tri->vecs[j].x += camera.pos.x;
-        tri->vecs[j].y += camera.pos.y;
-        tri->vecs[j].z += camera.pos.z;
-    }
+// mat mult like this replaces translating and rotating the triangles separately
+void apply_view_matrix(Triangle *tri) {
+    tri->vecs[0] = mat4_mult_vec4_2(&LOOKAT_MTX, &tri->vecs[0]);
+    tri->vecs[1] = mat4_mult_vec4_2(&LOOKAT_MTX, &tri->vecs[1]);
+    tri->vecs[2] = mat4_mult_vec4_2(&LOOKAT_MTX, &tri->vecs[2]);
 
-    rotate_triangle(tri, -camera.yaw, -camera.pitch, 0.0);
 }
 
 void init_projection_mat() {
@@ -358,23 +357,6 @@ void normalise_triangle(Triangle *tri) {
     }
 }
 
-static Vec3 camera_forward(double yaw, double pitch) {
-    Vec3 f;
-    f.x = sinf(yaw);
-    f.y = 0.0f; // FPS-style: no vertical movement
-                // f.y = sinf(pitch);
-    f.z = cosf(yaw);
-    return f;
-}
-
-static Vec3 camera_right(float yaw) {
-    Vec3 r;
-    r.x = cosf(yaw);
-    r.y = 0.0f;
-    r.z = -sinf(yaw);
-    return r;
-}
-
 Vec3 vec3_add(Vec3 a, Vec3 b) {
     return (Vec3){a.x + b.x, a.y + b.y, a.z + b.z};
 }
@@ -383,16 +365,17 @@ Vec3 vec3_sub(Vec3 a, Vec3 b) {
     return (Vec3){a.x - b.x, a.y - b.y, a.z - b.z};
 }
 
+// scale vec3 by s
 Vec3 vec3_scale(Vec3 v, float s) { return (Vec3){v.x * s, v.y * s, v.z * s}; }
 
 float dot(Vec3 a, Vec3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
 
-Vec3 cross2(Vec3 a, Vec3 b) {
+Vec3 cross(Vec3 a, Vec3 b) {
     return (Vec3){a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z,
                   a.x * b.y - a.y * b.x};
 }
 
-Vec3 normalize2(Vec3 v) {
+Vec3 normalize(Vec3 v) {
     float len = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
     if (len == 0.0f)
         return v;
@@ -400,15 +383,37 @@ Vec3 normalize2(Vec3 v) {
     return (Vec3){v.x / len, v.y / len, v.z / len};
 }
 
+// Update the View/LookAt matrix every animation loop
+// dont understand the math for now :/
 void update_camera_basis() {
     Vec3 forward = {cosf(camera.pitch) * sinf(camera.yaw), sinf(camera.pitch),
                     cosf(camera.pitch) * cosf(camera.yaw)};
-    camera.forward = normalize2(forward);
+    camera.forward = normalize(forward);
 
     Vec3 world_up = {0, 1, 0};
 
-    camera.right = normalize2(cross2(world_up, camera.forward));
-    camera.up = cross2(camera.forward, camera.right);
+    camera.right = normalize(cross(world_up, camera.forward));
+    camera.up = cross(camera.forward, camera.right);
+
+	LOOKAT_MTX.m[0][0] = camera.right.x;
+	LOOKAT_MTX.m[0][1] = camera.right.y;
+	LOOKAT_MTX.m[0][2] = camera.right.z;
+	LOOKAT_MTX.m[0][3] = -dot(camera.right, camera.pos);
+
+	LOOKAT_MTX.m[1][0] = camera.up.x;
+	LOOKAT_MTX.m[1][1] = camera.up.y;
+	LOOKAT_MTX.m[1][2] = camera.up.z;
+	LOOKAT_MTX.m[1][3] = -dot(camera.up, camera.pos);
+
+	LOOKAT_MTX.m[2][0] = -camera.forward.x;
+	LOOKAT_MTX.m[2][1] = -camera.forward.y;
+	LOOKAT_MTX.m[2][2] = -camera.forward.z;
+	LOOKAT_MTX.m[2][3] = dot(camera.forward, camera.pos);
+
+	LOOKAT_MTX.m[3][0] = 0;
+	LOOKAT_MTX.m[3][1] = 0;
+	LOOKAT_MTX.m[3][2] = 0;
+	LOOKAT_MTX.m[3][3] = 1;
 }
 
 int main() {
@@ -504,34 +509,24 @@ int main() {
         last = now;
 
         update_camera_basis();
-        // Vec3 forward = camera_forward(camera.yaw, camera.pitch);
-        // Vec3 right = camera_right(camera.yaw);
 
         float moveSpeed = 5.0f * deltaTime;
 
         if (keys[SDL_SCANCODE_W]) {
             camera.pos =
                 vec3_sub(camera.pos, vec3_scale(camera.forward, moveSpeed));
-            // camera.pos.x -= forward.x * moveSpeed;
-            // camera.pos.z -= forward.z * moveSpeed;
         }
         if (keys[SDL_SCANCODE_S]) {
             camera.pos =
                 vec3_add(camera.pos, vec3_scale(camera.forward, moveSpeed));
-            // camera.pos.x += forward.x * moveSpeed;
-            // camera.pos.z += forward.z * moveSpeed;
         }
         if (keys[SDL_SCANCODE_A]) {
             camera.pos =
                 vec3_sub(camera.pos, vec3_scale(camera.right, moveSpeed));
-            // camera.pos.x -= right.x * moveSpeed;
-            // camera.pos.z -= right.z * moveSpeed;
         }
         if (keys[SDL_SCANCODE_D]) {
             camera.pos =
                 vec3_add(camera.pos, vec3_scale(camera.right, moveSpeed));
-            // camera.pos.x += right.x * moveSpeed;
-            // camera.pos.z += right.z * moveSpeed;
         }
         if (keys[SDL_SCANCODE_O]) {
             camera.yaw -= moveSpeed * pitch_yaw_sensitivity;
@@ -569,25 +564,7 @@ int main() {
                 Triangle tri_updated = mesh->tris[i];
                 rotate_triangle(&tri_updated, 0, 0.0 * 0.5, 0 * 0.33);
                 translate_triangle(&tri_updated, 1.0);
-                // camera_movement(&tri_updated);
-                // APPLY CAMERA TRANSFORM PER VERTEX
-                for (int v = 0; v < 3; v++) {
-                    Vec3 world = {tri_updated.vecs[v].x, tri_updated.vecs[v].y,
-                                  tri_updated.vecs[v].z};
-
-                    Vec3 to_camera = vec3_sub(world, camera.pos);
-
-                    Vec3 view;
-                    view.x = dot(to_camera, camera.right);
-                    view.y = dot(to_camera, camera.up);
-                    view.z = dot(to_camera, camera.forward);
-
-                    tri_updated.vecs[v].x = view.x;
-                    tri_updated.vecs[v].y = view.y;
-                    tri_updated.vecs[v].z = view.z;
-                    // w stays the same
-                }
-
+				apply_view_matrix(&tri_updated);
                 project_triangle(&tri_updated);
                 normalise_triangle(&tri_updated);
                 draw_triangle(&tri_updated);
