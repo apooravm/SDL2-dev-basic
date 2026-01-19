@@ -416,6 +416,46 @@ void update_camera_basis() {
 	LOOKAT_MTX.m[3][3] = 1;
 }
 
+static Triangle shipTris[] = {
+
+    /* ===== Body (rectangular hull) ===== */
+
+    // Top
+    {{ { -0.5,  0.2, -1.0, 1 }, {  0.5,  0.2, -1.0, 1 }, {  0.0,  0.2,  1.2, 1 } }},
+    // Bottom
+    {{ {  0.5, -0.2, -1.0, 1 }, { -0.5, -0.2, -1.0, 1 }, {  0.0, -0.2,  1.2, 1 } }},
+
+    // Left side
+    {{ { -0.5, -0.2, -1.0, 1 }, { -0.5,  0.2, -1.0, 1 }, {  0.0,  0.0,  1.2, 1 } }},
+    // Right side
+    {{ {  0.5,  0.2, -1.0, 1 }, {  0.5, -0.2, -1.0, 1 }, {  0.0,  0.0,  1.2, 1 } }},
+
+    /* ===== Nose tip ===== */
+
+    {{ { -0.2,  0.1,  1.2, 1 }, {  0.2,  0.1,  1.2, 1 }, {  0.0,  0.0,  1.8, 1 } }},
+    {{ {  0.2, -0.1,  1.2, 1 }, { -0.2, -0.1,  1.2, 1 }, {  0.0,  0.0,  1.8, 1 } }},
+
+    /* ===== Left wing ===== */
+
+    {{ { -0.5,  0.0, -0.5, 1 }, { -1.4,  0.0, -0.8, 1 }, { -0.5,  0.0,  0.4, 1 } }},
+    {{ { -0.5,  0.0,  0.4, 1 }, { -1.4,  0.0, -0.8, 1 }, { -1.2,  0.0,  0.2, 1 } }},
+
+    /* ===== Right wing ===== */
+
+    {{ {  0.5,  0.0, -0.5, 1 }, {  0.5,  0.0,  0.4, 1 }, {  1.4,  0.0, -0.8, 1 } }},
+    {{ {  0.5,  0.0,  0.4, 1 }, {  1.2,  0.0,  0.2, 1 }, {  1.4,  0.0, -0.8, 1 } }},
+
+    /* ===== Engine exhaust ===== */
+
+    {{ { -0.3,  0.1, -1.0, 1 }, {  0.3,  0.1, -1.0, 1 }, {  0.0,  0.0, -1.6, 1 } }},
+    {{ {  0.3, -0.1, -1.0, 1 }, { -0.3, -0.1, -1.0, 1 }, {  0.0,  0.0, -1.6, 1 } }},
+};
+
+static Mesh shipMesh = {
+    .tris = shipTris,
+    .numTris = sizeof(shipTris) / sizeof(Triangle)
+};
+
 int main() {
     SDL_Init(SDL_INIT_VIDEO);
     // window = NULL if SDL_CreateWindow throws error
@@ -449,6 +489,7 @@ int main() {
     Vec4 v1 = {0.5, 0, 1, 1};
 
     CubeMesh = get_cube(0, 0, 0, 1);
+	CubeMesh = &shipMesh;
     double angle = 120.0f;
 
     Mesh *CubeMesh2 = get_cube(0, 1.2, 0, 1);
@@ -522,11 +563,11 @@ int main() {
         }
         if (keys[SDL_SCANCODE_A]) {
             camera.pos =
-                vec3_sub(camera.pos, vec3_scale(camera.right, moveSpeed));
+                vec3_add(camera.pos, vec3_scale(camera.right, moveSpeed));
         }
         if (keys[SDL_SCANCODE_D]) {
             camera.pos =
-                vec3_add(camera.pos, vec3_scale(camera.right, moveSpeed));
+                vec3_sub(camera.pos, vec3_scale(camera.right, moveSpeed));
         }
         if (keys[SDL_SCANCODE_O]) {
             camera.yaw -= moveSpeed * pitch_yaw_sensitivity;
