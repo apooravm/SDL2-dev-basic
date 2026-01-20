@@ -251,44 +251,51 @@ static inline float edge_function(float ax, float ay,
 }
 
 void draw_triangle_fill(Triangle *tri) {
-    /* Convert from normalized device coords to screen space */
+    /* Convert NDC -> screen */
     float x0 = (float)norm_to_screen_x(tri->vecs[0].x);
     float y0 = (float)norm_to_screen_y(tri->vecs[0].y);
-
     float x1 = (float)norm_to_screen_x(tri->vecs[1].x);
     float y1 = (float)norm_to_screen_y(tri->vecs[1].y);
-
     float x2 = (float)norm_to_screen_x(tri->vecs[2].x);
     float y2 = (float)norm_to_screen_y(tri->vecs[2].y);
 
-    /* Compute bounding box */
-    int min_x = (int)fminf(fminf(x0, x1), x2);
-    int max_x = (int)fmaxf(fmaxf(x0, x1), x2);
-    int min_y = (int)fminf(fminf(y0, y1), y2);
-    int max_y = (int)fmaxf(fmaxf(y0, y1), y2);
+    /* Bounding box (floor/ceil, NOT casts) */
+    int min_x = (int)floorf(fminf(fminf(x0, x1), x2));
+    int max_x = (int)ceilf (fmaxf(fmaxf(x0, x1), x2));
+    int min_y = (int)floorf(fminf(fminf(y0, y1), y2));
+    int max_y = (int)ceilf (fmaxf(fmaxf(y0, y1), y2));
+
+    /* Clamp to screen */
+    if (min_x < 0) min_x = 0;
+    if (min_y < 0) min_y = 0;
+    if (max_x >= WIDTH)  max_x = WIDTH  - 1;
+    if (max_y >= HEIGHT) max_y = HEIGHT - 1;
 
     /* Triangle area */
     float area = edge_function(x0, y0, x1, y1, x2, y2);
-    if (area == 0.0f)
+    if (fabsf(area) < 1e-6f)
         return;
 
     /* Rasterize */
     for (int y = min_y; y <= max_y; y++) {
         for (int x = min_x; x <= max_x; x++) {
 
-            float w0 = edge_function(x1, y1, x2, y2, (float)x, (float)y);
-            float w1 = edge_function(x2, y2, x0, y0, (float)x, (float)y);
-            float w2 = edge_function(x0, y0, x1, y1, (float)x, (float)y);
+            float px = (float)x + 0.5f;
+            float py = (float)y + 0.5f;
 
-            /* Inside test */
+            float w0 = edge_function(x1, y1, x2, y2, px, py);
+            float w1 = edge_function(x2, y2, x0, y0, px, py);
+            float w2 = edge_function(x0, y0, x1, y1, px, py);
+
             if ((w0 >= 0 && w1 >= 0 && w2 >= 0) ||
                 (w0 <= 0 && w1 <= 0 && w2 <= 0))
             {
-				draw_dot(x, y);
+                draw_dot(x, y);
             }
         }
     }
 }
+
 
 // Should NOT update the points in place
 // Return the new point to be drawn
