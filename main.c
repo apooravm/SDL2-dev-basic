@@ -243,6 +243,53 @@ void draw_triangle(Triangle *tri) {
     DrawLine(tri->vecs[2].x, tri->vecs[2].y, tri->vecs[0].x, tri->vecs[0].y);
 }
 
+static inline float edge_function(float ax, float ay,
+                                  float bx, float by,
+                                  float cx, float cy)
+{
+    return (cx - ax) * (by - ay) - (cy - ay) * (bx - ax);
+}
+
+void draw_triangle_fill(Triangle *tri) {
+    /* Convert from normalized device coords to screen space */
+    float x0 = (float)norm_to_screen_x(tri->vecs[0].x);
+    float y0 = (float)norm_to_screen_y(tri->vecs[0].y);
+
+    float x1 = (float)norm_to_screen_x(tri->vecs[1].x);
+    float y1 = (float)norm_to_screen_y(tri->vecs[1].y);
+
+    float x2 = (float)norm_to_screen_x(tri->vecs[2].x);
+    float y2 = (float)norm_to_screen_y(tri->vecs[2].y);
+
+    /* Compute bounding box */
+    int min_x = (int)fminf(fminf(x0, x1), x2);
+    int max_x = (int)fmaxf(fmaxf(x0, x1), x2);
+    int min_y = (int)fminf(fminf(y0, y1), y2);
+    int max_y = (int)fmaxf(fmaxf(y0, y1), y2);
+
+    /* Triangle area */
+    float area = edge_function(x0, y0, x1, y1, x2, y2);
+    if (area == 0.0f)
+        return;
+
+    /* Rasterize */
+    for (int y = min_y; y <= max_y; y++) {
+        for (int x = min_x; x <= max_x; x++) {
+
+            float w0 = edge_function(x1, y1, x2, y2, (float)x, (float)y);
+            float w1 = edge_function(x2, y2, x0, y0, (float)x, (float)y);
+            float w2 = edge_function(x0, y0, x1, y1, (float)x, (float)y);
+
+            /* Inside test */
+            if ((w0 >= 0 && w1 >= 0 && w2 >= 0) ||
+                (w0 <= 0 && w1 <= 0 && w2 <= 0))
+            {
+				draw_dot(x, y);
+            }
+        }
+    }
+}
+
 // Should NOT update the points in place
 // Return the new point to be drawn
 Vec4 rotate_xyz(Vec4 *v, double ax, double ay, double az) {
@@ -527,7 +574,7 @@ int main() {
 
             case SDL_MOUSEMOTION:
                 // break;
-                camera.yaw += e.motion.xrel * mouseSensitivity;
+                camera.yaw -= e.motion.xrel * mouseSensitivity;
                 camera.pitch -= e.motion.yrel * mouseSensitivity;
 
                 if (camera.pitch > 1.55f)
@@ -569,24 +616,24 @@ int main() {
             camera.pos =
                 vec3_sub(camera.pos, vec3_scale(camera.right, moveSpeed));
         }
-        if (keys[SDL_SCANCODE_O]) {
-            camera.yaw -= moveSpeed * pitch_yaw_sensitivity;
-        }
         if (keys[SDL_SCANCODE_L]) {
+            camera.yaw += moveSpeed * pitch_yaw_sensitivity;
+        }
+        if (keys[SDL_SCANCODE_K]) {
             // camera.yaw += moveSpeed * pitch_yaw_sensitivity;
-            camera.pitch += moveSpeed * pitch_yaw_sensitivity;
+            camera.pitch -= moveSpeed * pitch_yaw_sensitivity;
 
             if (camera.pitch > 1.55f)
                 camera.pitch = 1.55f;
             if (camera.pitch < -1.55f)
                 camera.pitch = -1.55f;
         }
-        if (keys[SDL_SCANCODE_I]) {
-            camera.yaw += moveSpeed * pitch_yaw_sensitivity;
+        if (keys[SDL_SCANCODE_H]) {
+            camera.yaw -= moveSpeed * pitch_yaw_sensitivity;
         }
-        if (keys[SDL_SCANCODE_K]) {
+        if (keys[SDL_SCANCODE_J]) {
             // camera.yaw += moveSpeed * pitch_yaw_sensitivity;
-            camera.pitch -= moveSpeed * pitch_yaw_sensitivity;
+            camera.pitch += moveSpeed * pitch_yaw_sensitivity;
 
             if (camera.pitch > 1.55f)
                 camera.pitch = 1.55f;
@@ -603,12 +650,12 @@ int main() {
             Mesh *mesh = objects[i];
             for (int i = 0; i < mesh->numTris; i++) {
                 Triangle tri_updated = mesh->tris[i];
-                rotate_triangle(&tri_updated, 0, 0.0 * 0.5, 0 * 0.33);
-                translate_triangle(&tri_updated, 1.0);
+                // rotate_triangle(&tri_updated, 0, 0.0 * 0.5, 0 * 0.33);
+                // translate_triangle(&tri_updated, 1.0);
 				apply_view_matrix(&tri_updated);
                 project_triangle(&tri_updated);
                 normalise_triangle(&tri_updated);
-                draw_triangle(&tri_updated);
+                draw_triangle_fill(&tri_updated); // rasterization
             }
         }
 
