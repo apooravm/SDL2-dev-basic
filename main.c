@@ -243,10 +243,8 @@ void draw_triangle(Triangle *tri) {
     DrawLine(tri->vecs[2].x, tri->vecs[2].y, tri->vecs[0].x, tri->vecs[0].y);
 }
 
-static inline float edge_function(float ax, float ay,
-                                  float bx, float by,
-                                  float cx, float cy)
-{
+static inline float edge_function(float ax, float ay, float bx, float by,
+                                  float cx, float cy) {
     return (cx - ax) * (by - ay) - (cy - ay) * (bx - ax);
 }
 
@@ -261,15 +259,19 @@ void draw_triangle_fill(Triangle *tri) {
 
     /* Bounding box (floor/ceil, NOT casts) */
     int min_x = (int)floorf(fminf(fminf(x0, x1), x2));
-    int max_x = (int)ceilf (fmaxf(fmaxf(x0, x1), x2));
+    int max_x = (int)ceilf(fmaxf(fmaxf(x0, x1), x2));
     int min_y = (int)floorf(fminf(fminf(y0, y1), y2));
-    int max_y = (int)ceilf (fmaxf(fmaxf(y0, y1), y2));
+    int max_y = (int)ceilf(fmaxf(fmaxf(y0, y1), y2));
 
     /* Clamp to screen */
-    if (min_x < 0) min_x = 0;
-    if (min_y < 0) min_y = 0;
-    if (max_x >= WIDTH)  max_x = WIDTH  - 1;
-    if (max_y >= HEIGHT) max_y = HEIGHT - 1;
+    if (min_x < 0)
+        min_x = 0;
+    if (min_y < 0)
+        min_y = 0;
+    if (max_x >= WIDTH)
+        max_x = WIDTH - 1;
+    if (max_y >= HEIGHT)
+        max_y = HEIGHT - 1;
 
     /* Triangle area */
     float area = edge_function(x0, y0, x1, y1, x2, y2);
@@ -288,14 +290,12 @@ void draw_triangle_fill(Triangle *tri) {
             float w2 = edge_function(x0, y0, x1, y1, px, py);
 
             if ((w0 >= 0 && w1 >= 0 && w2 >= 0) ||
-                (w0 <= 0 && w1 <= 0 && w2 <= 0))
-            {
+                (w0 <= 0 && w1 <= 0 && w2 <= 0)) {
                 draw_dot(x, y);
             }
         }
     }
 }
-
 
 // Should NOT update the points in place
 // Return the new point to be drawn
@@ -373,7 +373,6 @@ void apply_view_matrix(Triangle *tri) {
     tri->vecs[0] = mat4_mult_vec4_2(&LOOKAT_MTX, &tri->vecs[0]);
     tri->vecs[1] = mat4_mult_vec4_2(&LOOKAT_MTX, &tri->vecs[1]);
     tri->vecs[2] = mat4_mult_vec4_2(&LOOKAT_MTX, &tri->vecs[2]);
-
 }
 
 void init_projection_mat() {
@@ -411,6 +410,14 @@ void normalise_triangle(Triangle *tri) {
     }
 }
 
+int triangle_in_front(const Triangle *t) {
+    for (int i = 0; i < 3; i++) {
+        if (t->vecs[i].w > 0)
+            return 1;
+    }
+    return 0;
+}
+
 Vec3 vec3_add(Vec3 a, Vec3 b) {
     return (Vec3){a.x + b.x, a.y + b.y, a.z + b.z};
 }
@@ -440,8 +447,11 @@ Vec3 normalize(Vec3 v) {
 // Update the View/LookAt matrix every animation loop
 // dont understand the math for now :/
 void update_camera_basis() {
-    Vec3 forward = {cosf(camera.pitch) * sinf(camera.yaw), sinf(camera.pitch),
-                    cosf(camera.pitch) * cosf(camera.yaw)};
+    Vec3 forward = {
+        cosf(camera.pitch) * sinf(camera.yaw), // x
+        sinf(camera.pitch),                    // y
+        cosf(camera.pitch) * cosf(camera.yaw)  // z
+    };
     camera.forward = normalize(forward);
 
     Vec3 world_up = {0, 1, 0};
@@ -449,25 +459,25 @@ void update_camera_basis() {
     camera.right = normalize(cross(world_up, camera.forward));
     camera.up = cross(camera.forward, camera.right);
 
-	LOOKAT_MTX.m[0][0] = camera.right.x;
-	LOOKAT_MTX.m[0][1] = camera.right.y;
-	LOOKAT_MTX.m[0][2] = camera.right.z;
-	LOOKAT_MTX.m[0][3] = -dot(camera.right, camera.pos);
+    LOOKAT_MTX.m[0][0] = camera.right.x;
+    LOOKAT_MTX.m[0][1] = camera.right.y;
+    LOOKAT_MTX.m[0][2] = camera.right.z;
+    LOOKAT_MTX.m[0][3] = -dot(camera.right, camera.pos);
 
-	LOOKAT_MTX.m[1][0] = camera.up.x;
-	LOOKAT_MTX.m[1][1] = camera.up.y;
-	LOOKAT_MTX.m[1][2] = camera.up.z;
-	LOOKAT_MTX.m[1][3] = -dot(camera.up, camera.pos);
+    LOOKAT_MTX.m[1][0] = camera.up.x;
+    LOOKAT_MTX.m[1][1] = camera.up.y;
+    LOOKAT_MTX.m[1][2] = camera.up.z;
+    LOOKAT_MTX.m[1][3] = -dot(camera.up, camera.pos);
 
-	LOOKAT_MTX.m[2][0] = -camera.forward.x;
-	LOOKAT_MTX.m[2][1] = -camera.forward.y;
-	LOOKAT_MTX.m[2][2] = -camera.forward.z;
-	LOOKAT_MTX.m[2][3] = dot(camera.forward, camera.pos);
+    LOOKAT_MTX.m[2][0] = -camera.forward.x;
+    LOOKAT_MTX.m[2][1] = -camera.forward.y;
+    LOOKAT_MTX.m[2][2] = -camera.forward.z;
+    LOOKAT_MTX.m[2][3] = dot(camera.forward, camera.pos);
 
-	LOOKAT_MTX.m[3][0] = 0;
-	LOOKAT_MTX.m[3][1] = 0;
-	LOOKAT_MTX.m[3][2] = 0;
-	LOOKAT_MTX.m[3][3] = 1;
+    LOOKAT_MTX.m[3][0] = 0;
+    LOOKAT_MTX.m[3][1] = 0;
+    LOOKAT_MTX.m[3][2] = 0;
+    LOOKAT_MTX.m[3][3] = 1;
 }
 
 static Triangle shipTris[] = {
@@ -475,40 +485,38 @@ static Triangle shipTris[] = {
     /* ===== Body (rectangular hull) ===== */
 
     // Top
-    {{ { -0.5,  0.2, -1.0, 1 }, {  0.5,  0.2, -1.0, 1 }, {  0.0,  0.2,  1.2, 1 } }},
+    {{{-0.5, 0.2, -1.0, 1}, {0.5, 0.2, -1.0, 1}, {0.0, 0.2, 1.2, 1}}},
     // Bottom
-    {{ {  0.5, -0.2, -1.0, 1 }, { -0.5, -0.2, -1.0, 1 }, {  0.0, -0.2,  1.2, 1 } }},
+    {{{0.5, -0.2, -1.0, 1}, {-0.5, -0.2, -1.0, 1}, {0.0, -0.2, 1.2, 1}}},
 
     // Left side
-    {{ { -0.5, -0.2, -1.0, 1 }, { -0.5,  0.2, -1.0, 1 }, {  0.0,  0.0,  1.2, 1 } }},
+    {{{-0.5, -0.2, -1.0, 1}, {-0.5, 0.2, -1.0, 1}, {0.0, 0.0, 1.2, 1}}},
     // Right side
-    {{ {  0.5,  0.2, -1.0, 1 }, {  0.5, -0.2, -1.0, 1 }, {  0.0,  0.0,  1.2, 1 } }},
+    {{{0.5, 0.2, -1.0, 1}, {0.5, -0.2, -1.0, 1}, {0.0, 0.0, 1.2, 1}}},
 
     /* ===== Nose tip ===== */
 
-    {{ { -0.2,  0.1,  1.2, 1 }, {  0.2,  0.1,  1.2, 1 }, {  0.0,  0.0,  1.8, 1 } }},
-    {{ {  0.2, -0.1,  1.2, 1 }, { -0.2, -0.1,  1.2, 1 }, {  0.0,  0.0,  1.8, 1 } }},
+    {{{-0.2, 0.1, 1.2, 1}, {0.2, 0.1, 1.2, 1}, {0.0, 0.0, 1.8, 1}}},
+    {{{0.2, -0.1, 1.2, 1}, {-0.2, -0.1, 1.2, 1}, {0.0, 0.0, 1.8, 1}}},
 
     /* ===== Left wing ===== */
 
-    {{ { -0.5,  0.0, -0.5, 1 }, { -1.4,  0.0, -0.8, 1 }, { -0.5,  0.0,  0.4, 1 } }},
-    {{ { -0.5,  0.0,  0.4, 1 }, { -1.4,  0.0, -0.8, 1 }, { -1.2,  0.0,  0.2, 1 } }},
+    {{{-0.5, 0.0, -0.5, 1}, {-1.4, 0.0, -0.8, 1}, {-0.5, 0.0, 0.4, 1}}},
+    {{{-0.5, 0.0, 0.4, 1}, {-1.4, 0.0, -0.8, 1}, {-1.2, 0.0, 0.2, 1}}},
 
     /* ===== Right wing ===== */
 
-    {{ {  0.5,  0.0, -0.5, 1 }, {  0.5,  0.0,  0.4, 1 }, {  1.4,  0.0, -0.8, 1 } }},
-    {{ {  0.5,  0.0,  0.4, 1 }, {  1.2,  0.0,  0.2, 1 }, {  1.4,  0.0, -0.8, 1 } }},
+    {{{0.5, 0.0, -0.5, 1}, {0.5, 0.0, 0.4, 1}, {1.4, 0.0, -0.8, 1}}},
+    {{{0.5, 0.0, 0.4, 1}, {1.2, 0.0, 0.2, 1}, {1.4, 0.0, -0.8, 1}}},
 
     /* ===== Engine exhaust ===== */
 
-    {{ { -0.3,  0.1, -1.0, 1 }, {  0.3,  0.1, -1.0, 1 }, {  0.0,  0.0, -1.6, 1 } }},
-    {{ {  0.3, -0.1, -1.0, 1 }, { -0.3, -0.1, -1.0, 1 }, {  0.0,  0.0, -1.6, 1 } }},
+    {{{-0.3, 0.1, -1.0, 1}, {0.3, 0.1, -1.0, 1}, {0.0, 0.0, -1.6, 1}}},
+    {{{0.3, -0.1, -1.0, 1}, {-0.3, -0.1, -1.0, 1}, {0.0, 0.0, -1.6, 1}}},
 };
 
-static Mesh shipMesh = {
-    .tris = shipTris,
-    .numTris = sizeof(shipTris) / sizeof(Triangle)
-};
+static Mesh shipMesh = {.tris = shipTris,
+                        .numTris = sizeof(shipTris) / sizeof(Triangle)};
 
 int main() {
     SDL_Init(SDL_INIT_VIDEO);
@@ -543,7 +551,7 @@ int main() {
     Vec4 v1 = {0.5, 0, 1, 1};
 
     CubeMesh = get_cube(0, 0, 0, 1);
-	CubeMesh = &shipMesh;
+    CubeMesh = &shipMesh;
     double angle = 120.0f;
 
     Mesh *CubeMesh2 = get_cube(0, 1.2, 0, 1);
@@ -659,10 +667,13 @@ int main() {
                 Triangle tri_updated = mesh->tris[i];
                 // rotate_triangle(&tri_updated, 0, 0.0 * 0.5, 0 * 0.33);
                 // translate_triangle(&tri_updated, 1.0);
-				apply_view_matrix(&tri_updated);
+                apply_view_matrix(&tri_updated);
                 project_triangle(&tri_updated);
+				if (triangle_in_front(&tri_updated)) {
+					continue;
+				}
                 normalise_triangle(&tri_updated);
-                draw_triangle_fill(&tri_updated); // rasterization
+                draw_triangle(&tri_updated); // rasterization
             }
         }
 
