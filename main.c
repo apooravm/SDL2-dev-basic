@@ -11,6 +11,7 @@
 #include <SDL2/SDL_video.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #define WIDTH 640
 #define HEIGHT 480
@@ -72,6 +73,7 @@ double fFovRad;
 Camera camera = {{0.0, 0.0, 1.9}, 0.0, 0.0, 0.0, 0.0, 0.0};
 Mat4 projection_matrix = {0};
 Mat4 LOOKAT_MTX = {0}; // lookat matrix
+float *zbuffer = NULL;
 
 Mesh *SquareMesh;
 Mesh *CubeMesh;
@@ -201,14 +203,22 @@ static inline int norm_to_screen_y(double y) {
     return (int)(((-y) * 0.5 + 0.5) * (HEIGHT - 1));
 }
 
-void DrawLine(double x1, double y1, double x2, double y2) {
-    // Convert normalized coords to screen pixels
-    int x1i = norm_to_screen_x(x1);
-    int y1i = norm_to_screen_y(y1);
-    int x2i = norm_to_screen_x(x2);
-    int y2i = norm_to_screen_y(y2);
+int max(int v1, int v2) {
+    if (v1 > v2) {
+        return v1;
+    }
 
-    // Bresenham (unchanged from here)
+    return v2;
+}
+
+void DrawLine(Vec4 *v1, Vec4 *v2) {
+    // Convert normalized coords to screen pixels
+    int x1i = norm_to_screen_x(v1->x);
+    int y1i = norm_to_screen_y(v1->y);
+    int x2i = norm_to_screen_x(v2->x);
+    int y2i = norm_to_screen_y(v2->y);
+
+    // Bresenham
     int dx = abs(x2i - x1i);
     int dy = abs(y2i - y1i);
 
@@ -217,9 +227,17 @@ void DrawLine(double x1, double y1, double x2, double y2) {
 
     int err = dx - dy;
 
+    double z = v1->z;
+    double dz = (v2->z - v1->z) / (double)max(dx, dy);
+
     while (1) {
-        if (x1i >= 0 && x1i < WIDTH && y1i >= 0 && y1i < HEIGHT)
-            draw_dot(x1i, y1i);
+        if (x1i >= 0 && x1i < WIDTH && y1i >= 0 && y1i < HEIGHT) {
+            int idx = y1i * WIDTH + x1i;
+            if (z < zbuffer[idx]) {
+                zbuffer[idx] = z;
+                draw_dot(x1i, y1i);
+            }
+        }
 
         if (x1i == x2i && y1i == y2i)
             break;
@@ -234,13 +252,15 @@ void DrawLine(double x1, double y1, double x2, double y2) {
             err += dx;
             y1i += sy;
         }
+
+        z += dz;
     }
 }
 
 void draw_triangle(Triangle *tri) {
-    DrawLine(tri->vecs[0].x, tri->vecs[0].y, tri->vecs[1].x, tri->vecs[1].y);
-    DrawLine(tri->vecs[1].x, tri->vecs[1].y, tri->vecs[2].x, tri->vecs[2].y);
-    DrawLine(tri->vecs[2].x, tri->vecs[2].y, tri->vecs[0].x, tri->vecs[0].y);
+    DrawLine(&tri->vecs[0], &tri->vecs[1]);
+    DrawLine(&tri->vecs[1], &tri->vecs[2]);
+    DrawLine(&tri->vecs[2], &tri->vecs[0]);
 }
 
 static inline float edge_function(float ax, float ay, float bx, float by,
@@ -480,6 +500,11 @@ void update_camera_basis() {
     LOOKAT_MTX.m[3][3] = 1;
 }
 
+void clear_zbuffer() {
+    for (int i = 0; i < WIDTH * HEIGHT; i++)
+        zbuffer[i] = 1e9f;
+}
+
 static Triangle shipTris[] = {
 
     /* ===== Body (rectangular hull) ===== */
@@ -529,6 +554,7 @@ int main() {
     }
 
     init_projection_mat();
+    zbuffer = malloc(sizeof(float) * WIDTH * HEIGHT);
 
     SDL_Surface *surface = SDL_GetWindowSurface(window);
     SURFACE = surface;
@@ -669,13 +695,15 @@ int main() {
                 // translate_triangle(&tri_updated, 1.0);
                 apply_view_matrix(&tri_updated);
                 project_triangle(&tri_updated);
-				if (triangle_in_front(&tri_updated)) {
-					continue;
-				}
+                if (triangle_in_front(&tri_updated)) {
+                    continue;
+                }
                 normalise_triangle(&tri_updated);
                 draw_triangle(&tri_updated); // rasterization
             }
         }
+
+		clear_zbuffer();
 
         angle += 0.02;
 
@@ -688,7 +716,7 @@ int main() {
         }
     }
 
-    // SDL_Delay(5000);
+    free(zbuffer);
     return 0;
 }
 
