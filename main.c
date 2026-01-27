@@ -70,7 +70,7 @@ double FOV_ANGLE = 90;
 double FOV;
 double Z_NORM;
 double fNear = 0.1f;
-double fFar = 1000.0f;
+double fFar = 10.0f;
 double fFov = 90.0f;
 double fFovRad;
 Camera camera = {{0.0, 0.0, 1.0}, 0.0, 0.0, 0.0, 0.0, 0.0};
@@ -319,12 +319,17 @@ void draw_triangle_fill(Triangle *tri, int c_idx) {
     float z1 = tri->vecs[1].z;
     float z2 = tri->vecs[2].z;
 
+    // to correct for the perspective divide done in normalise triangle
+    float iz0 = 1.0f / z0;
+    float iz1 = 1.0f / z1;
+    float iz2 = 1.0f / z2;
+
     /* Rasterize */
     for (int y = min_y; y <= max_y; y++) {
         for (int x = min_x; x <= max_x; x++) {
 
-            float px = (float)x + 5.5f;
-            float py = (float)y + 5.5f;
+            float px = (float)x + 0.5f;
+            float py = (float)y + 0.5f;
 
             float w0 = edge_function(x1, y1, x2, y2, px, py);
             float w1 = edge_function(x2, y2, x0, y0, px, py);
@@ -335,6 +340,10 @@ void draw_triangle_fill(Triangle *tri, int c_idx) {
             float w1_norm = w1 / area;
             float w2_norm = w2 / area;
 
+            float iz = w0_norm * iz0 + w1_norm * iz1 + w2_norm * iz2;
+            float z = 1.0f / iz;
+            z = iz;
+
             float r;
             if (c_idx == 0) {
                 r = COLOUR_RED * w0_norm + COLOUR_RED * w1_norm +
@@ -344,7 +353,7 @@ void draw_triangle_fill(Triangle *tri, int c_idx) {
                     COLOUR_GREEN * w2_norm;
             }
             // interpolating depth
-            float z = w0_norm * z0 + w1_norm * z1 + w2_norm * z2;
+            // float z = w0_norm * z0 + w1_norm * z1 + w2_norm * z2;
             // printf("%f\n", tri->vecs[0].x);
 
             if ((w0 >= 0 && w1 >= 0 && w2 >= 0) ||
@@ -662,10 +671,11 @@ int main() {
                                           (Vec4){0.0, 1.0, 0.0, W_DEF},
                                           (Vec4){1.0, 0.0, 0.0, W_DEF});
 
-    int OBJ_SIZE = 2;
+    int OBJ_SIZE = 1;
     Mesh *objects[OBJ_SIZE];
-    objects[0] = Single_tri2;
-    objects[1] = Single_tri;
+	objects[0] = CubeMesh;
+    // objects[0] = Single_tri2;
+    // objects[1] = Single_tri;
     // objects[1] = CubeMesh;
     // objects[1] = CubeMesh2;
 
@@ -800,9 +810,18 @@ int main() {
         }
     }
 
+    // free(CubeMesh2->tris);
+    // free(CubeMesh2);
+
+    free(CubeMesh->tris);
+    free(CubeMesh);
+
     free(zbuffer);
-    free(Single_tri->tris);
-    free(Single_tri);
+	free(Single_tri->tris);
+	free(Single_tri);
+	free(Single_tri2->tris);
+	free(Single_tri2);
+
     return 0;
 }
 
