@@ -16,6 +16,9 @@
 #define WIDTH 640
 #define HEIGHT 480
 #define COLOUR_WHITE 0xffffffff
+#define COLOUR_RED 0xffff0000
+#define COLOUR_GREEN 0x000fff00
+#define COLOUR_BLUE 0xff0000ff
 #define SQUARE_TRIANGLE_COUNT 2
 #define CUBE_TRIANGLE_COUNT 12
 
@@ -70,13 +73,26 @@ double fNear = 0.1f;
 double fFar = 1000.0f;
 double fFov = 90.0f;
 double fFovRad;
-Camera camera = {{0.0, 0.0, 1.9}, 0.0, 0.0, 0.0, 0.0, 0.0};
+Camera camera = {{0.0, 0.0, 1.0}, 0.0, 0.0, 0.0, 0.0, 0.0};
 Mat4 projection_matrix = {0};
 Mat4 LOOKAT_MTX = {0}; // lookat matrix
 float *zbuffer = NULL;
 
 Mesh *SquareMesh;
 Mesh *CubeMesh;
+
+void dump_vertex_to_debug_file(float val) {
+    FILE *debugFile = fopen("debug.txt", "a");
+    if (debugFile == NULL) {
+        perror("Failed to open debug file");
+        exit(1);
+    }
+
+    // Write vertex 0
+    fprintf(debugFile, "VAL=%f\n", val);
+
+    fclose(debugFile);
+}
 
 void FillCircle(struct Circle circle, Uint32 colour) {
     double radius_squared = circle.r * circle.r;
@@ -187,12 +203,12 @@ Mesh *get_cube(double x, double y, double z, double side) {
 }
 
 // convert normalized cartesian point to screen point
-void draw_dot(double x, double y) {
+void draw_dot(double x, double y, unsigned int COLOUR) {
     int side = 2;
     // double screenX = (x + 1) * 0.5 * WIDTH;
     // double screenY = (1 - y) * 0.5 * HEIGHT;
     SDL_Rect pixel = (SDL_Rect){x, y, side, side};
-    SDL_FillRect(SURFACE, &pixel, COLOUR_WHITE);
+    SDL_FillRect(SURFACE, &pixel, COLOUR);
 }
 
 static inline int norm_to_screen_x(double x) {
@@ -235,7 +251,7 @@ void DrawLine(Vec4 *v1, Vec4 *v2) {
             int idx = y1i * WIDTH + x1i;
             if (z < zbuffer[idx]) {
                 zbuffer[idx] = z;
-                draw_dot(x1i, y1i);
+                draw_dot(x1i, y1i, COLOUR_WHITE);
             }
         }
 
@@ -268,7 +284,8 @@ static inline float edge_function(float ax, float ay, float bx, float by,
     return (cx - ax) * (by - ay) - (cy - ay) * (bx - ax);
 }
 
-void draw_triangle_fill(Triangle *tri) {
+// great tutorial: https://jtsorlinis.github.io/rendering-tutorial/
+void draw_triangle_fill(Triangle *tri, int c_idx) {
     /* Convert NDC -> screen */
     float x0 = (float)norm_to_screen_x(tri->vecs[0].x);
     float y0 = (float)norm_to_screen_y(tri->vecs[0].y);
@@ -298,20 +315,45 @@ void draw_triangle_fill(Triangle *tri) {
     if (fabsf(area) < 1e-6f)
         return;
 
+    float z0 = tri->vecs[0].z;
+    float z1 = tri->vecs[1].z;
+    float z2 = tri->vecs[2].z;
+
     /* Rasterize */
     for (int y = min_y; y <= max_y; y++) {
         for (int x = min_x; x <= max_x; x++) {
 
-            float px = (float)x + 0.5f;
-            float py = (float)y + 0.5f;
+            float px = (float)x + 5.5f;
+            float py = (float)y + 5.5f;
 
             float w0 = edge_function(x1, y1, x2, y2, px, py);
             float w1 = edge_function(x2, y2, x0, y0, px, py);
             float w2 = edge_function(x0, y0, x1, y1, px, py);
 
+            // barycentric for z values in buffer
+            float w0_norm = w0 / area;
+            float w1_norm = w1 / area;
+            float w2_norm = w2 / area;
+
+            float r;
+            if (c_idx == 0) {
+                r = COLOUR_RED * w0_norm + COLOUR_RED * w1_norm +
+                    COLOUR_RED * w2_norm;
+            } else {
+                r = COLOUR_GREEN * w0_norm + COLOUR_GREEN * w1_norm +
+                    COLOUR_GREEN * w2_norm;
+            }
+            // interpolating depth
+            float z = w0_norm * z0 + w1_norm * z1 + w2_norm * z2;
+            // printf("%f\n", tri->vecs[0].x);
+
             if ((w0 >= 0 && w1 >= 0 && w2 >= 0) ||
                 (w0 <= 0 && w1 <= 0 && w2 <= 0)) {
-                draw_dot(x, y);
+                int idx = y * WIDTH + x;
+                if (z < zbuffer[idx]) {
+                    zbuffer[idx] = z;
+                    draw_dot(x, y, r);
+                }
             }
         }
     }
@@ -576,15 +618,56 @@ int main() {
 
     Vec4 v1 = {0.5, 0, 1, 1};
 
-    CubeMesh = get_cube(0, 0, 0, 1);
-    CubeMesh = &shipMesh;
+    CubeMesh = get_cube(0, 1.2, 0, 1);
     double angle = 120.0f;
 
-    Mesh *CubeMesh2 = get_cube(0, 1.2, 0, 1);
+    Mesh *CubeMesh2 = get_cube(0, 0, 0, 1);
+    CubeMesh2 = &shipMesh;
 
-    Mesh *objects[2];
-    objects[0] = CubeMesh;
-    objects[1] = CubeMesh2;
+    Mesh *Single_tri2 = (Mesh *)malloc(sizeof(Mesh));
+    if (Single_tri2 == NULL) {
+        printf("Failed to allocate memory for single tri.\n");
+        return 1;
+    }
+
+    // Allocate memory for the triangles
+    Single_tri2->tris = (Triangle *)malloc(1 * sizeof(Triangle));
+    if (Single_tri2->tris == NULL) {
+        printf("Failed to allocate memory for Single Tri triangles.\n");
+        free(Single_tri2); // Free mesh if triangle allocation fails
+        return 1;
+    }
+
+    Single_tri2->numTris = 1;
+    Single_tri2->tris[0] = create_triangle((Vec4){0.0, 0.0, 0.4, W_DEF},
+                                           (Vec4){0.0, 1.0, 0.4, W_DEF},
+                                           (Vec4){1.0, 0.0, 0.4, W_DEF});
+
+    Mesh *Single_tri = (Mesh *)malloc(sizeof(Mesh));
+    if (Single_tri2 == NULL) {
+        printf("Failed to allocate memory for single tri.\n");
+        return 1;
+    }
+
+    // Allocate memory for the triangles
+    Single_tri->tris = (Triangle *)malloc(1 * sizeof(Triangle));
+    if (Single_tri->tris == NULL) {
+        printf("Failed to allocate memory for Single Tri triangles.\n");
+        free(Single_tri2); // Free mesh if triangle allocation fails
+        return 1;
+    }
+
+    Single_tri->numTris = 1;
+    Single_tri->tris[0] = create_triangle((Vec4){0.0, 0.0, 0.0, W_DEF},
+                                          (Vec4){0.0, 1.0, 0.0, W_DEF},
+                                          (Vec4){1.0, 0.0, 0.0, W_DEF});
+
+    int OBJ_SIZE = 2;
+    Mesh *objects[OBJ_SIZE];
+    objects[0] = Single_tri2;
+    objects[1] = Single_tri;
+    // objects[1] = CubeMesh;
+    // objects[1] = CubeMesh2;
 
     const int FPS = 60;
     const int frameDelay = 1000 / FPS;
@@ -687,8 +770,9 @@ int main() {
             circle.y = next_py;
         }
 
-        for (int i = 0; i < 2; i++) {
-            Mesh *mesh = objects[i];
+        // draw polygons
+        for (int m = 0; m < OBJ_SIZE; m++) {
+            Mesh *mesh = objects[m];
             for (int i = 0; i < mesh->numTris; i++) {
                 Triangle tri_updated = mesh->tris[i];
                 // rotate_triangle(&tri_updated, 0, 0.0 * 0.5, 0 * 0.33);
@@ -699,11 +783,11 @@ int main() {
                     continue;
                 }
                 normalise_triangle(&tri_updated);
-                draw_triangle(&tri_updated); // rasterization
+                draw_triangle_fill(&tri_updated, m); // rasterization
             }
         }
 
-		clear_zbuffer();
+        clear_zbuffer();
 
         angle += 0.02;
 
@@ -717,6 +801,8 @@ int main() {
     }
 
     free(zbuffer);
+    free(Single_tri->tris);
+    free(Single_tri);
     return 0;
 }
 
