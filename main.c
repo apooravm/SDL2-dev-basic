@@ -793,7 +793,8 @@ int main() {
                     continue;
                 }
                 normalise_triangle(&tri_updated);
-                draw_triangle_fill(&tri_updated, m); // rasterization
+				draw_triangle(&tri_updated);
+                // draw_triangle_fill(&tri_updated, m); // rasterization
             }
         }
 
