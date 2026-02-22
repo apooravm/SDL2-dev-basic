@@ -1,3 +1,5 @@
+#include "particle3d.h"
+#include "utils.h"
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_error.h>
 #include <SDL2/SDL_events.h>
@@ -29,15 +31,6 @@ struct Circle {
     double y;
     double r;
 };
-
-typedef struct {
-    double x, y, z;
-} Vec3;
-
-// homogeneous 4D vector
-typedef struct {
-    double x, y, z, w;
-} Vec4;
 
 typedef struct {
     Vec4 vecs[3];
@@ -489,17 +482,6 @@ int triangle_in_front(const Triangle *t) {
     return 0;
 }
 
-Vec3 vec3_add(Vec3 a, Vec3 b) {
-    return (Vec3){a.x + b.x, a.y + b.y, a.z + b.z};
-}
-
-Vec3 vec3_sub(Vec3 a, Vec3 b) {
-    return (Vec3){a.x - b.x, a.y - b.y, a.z - b.z};
-}
-
-// scale vec3 by s
-Vec3 vec3_scale(Vec3 v, float s) { return (Vec3){v.x * s, v.y * s, v.z * s}; }
-
 float dot(Vec3 a, Vec3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
 
 Vec3 cross(Vec3 a, Vec3 b) {
@@ -627,11 +609,19 @@ int main() {
 
     Vec4 v1 = {0.5, 0, 1, 1};
 
-    CubeMesh = get_cube(0, 1.2, 0, 1);
+    float cubeX = 0;
+    float cubeY = 1.2;
+    float cubeZ = 0;
+    float cubeWidth = 4.0;
+    CubeMesh = get_cube(cubeX, cubeY, cubeZ, cubeWidth);
     double angle = 120.0f;
 
-    Mesh *CubeMesh2 = get_cube(0, 0, 0, 1);
-    CubeMesh2 = &shipMesh;
+    Particle3D p1;
+    Particle3D_Init(&p1, cubeX, cubeY, cubeZ, 1.0, WIDTH, HEIGHT, 0, cubeX,
+                    cubeY, cubeZ, cubeWidth);
+
+    // Mesh *CubeMesh2 = get_cube(0, 0, 0, 1);
+    // CubeMesh2 = &shipMesh;
 
     Mesh *Single_tri2 = (Mesh *)malloc(sizeof(Mesh));
     if (Single_tri2 == NULL) {
@@ -673,7 +663,7 @@ int main() {
 
     int OBJ_SIZE = 1;
     Mesh *objects[OBJ_SIZE];
-	objects[0] = CubeMesh;
+    objects[0] = CubeMesh;
     // objects[0] = Single_tri2;
     // objects[1] = Single_tri;
     // objects[1] = CubeMesh;
@@ -780,6 +770,37 @@ int main() {
             circle.y = next_py;
         }
 
+		Particle3D_Update(&p1, 1);
+		printf("Px - %f, Py %f, Pz %f\n", p1.position.x, p1.position.y, p1.position.z);
+
+        // pipeline for the particle
+        // apply view matrix
+        // tri->vecs[0] = mat4_mult_vec4_2(&LOOKAT_MTX, &tri->vecs[0]);
+        p1.position = mat4_mult_vec4_2(&LOOKAT_MTX, &p1.position);
+        // project triangle
+        p1.position = mat4_mult_vec4_2(&projection_matrix, &p1.position);
+        // ??? wtfs is this step i fogor
+        if (p1.position.w < 0) {
+            // normalise
+            double w = p1.position.w;
+            if (w != 0.0) {
+                p1.position.x /= w;
+                p1.position.y /= w;
+                p1.position.z /= w;
+                p1.position.w = 1.0;
+            }
+            // draw point
+            int xi = norm_to_screen_x(p1.position.x);
+            int yi = norm_to_screen_y(p1.position.y);
+            if (xi >= 0 && xi < WIDTH && yi >= 0 && yi < HEIGHT) {
+                int idx = yi * WIDTH + xi;
+                if (p1.position.z < zbuffer[idx]) {
+                    zbuffer[idx] = p1.position.z;
+                    draw_dot(xi, yi, COLOUR_WHITE);
+                }
+            }
+        }
+
         // draw polygons
         for (int m = 0; m < OBJ_SIZE; m++) {
             Mesh *mesh = objects[m];
@@ -793,7 +814,7 @@ int main() {
                     continue;
                 }
                 normalise_triangle(&tri_updated);
-				draw_triangle(&tri_updated);
+                draw_triangle(&tri_updated);
                 // draw_triangle_fill(&tri_updated, m); // rasterization
             }
         }
@@ -818,10 +839,10 @@ int main() {
     free(CubeMesh);
 
     free(zbuffer);
-	free(Single_tri->tris);
-	free(Single_tri);
-	free(Single_tri2->tris);
-	free(Single_tri2);
+    free(Single_tri->tris);
+    free(Single_tri);
+    free(Single_tri2->tris);
+    free(Single_tri2);
 
     return 0;
 }
