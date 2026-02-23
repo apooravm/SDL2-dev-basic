@@ -1,5 +1,7 @@
+#include "grid.h"
 #include "particle3d.h"
 #include "utils.h"
+
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_error.h>
 #include <SDL2/SDL_events.h>
@@ -610,15 +612,22 @@ int main() {
     Vec4 v1 = {0.5, 0, 1, 1};
 
     float cubeX = 0;
-    float cubeY = 1.2;
+    float cubeY = 0;
     float cubeZ = 0;
     float cubeWidth = 4.0;
     CubeMesh = get_cube(cubeX, cubeY, cubeZ, cubeWidth);
     double angle = 120.0f;
 
-    Particle3D p1;
-    Particle3D_Init(&p1, cubeX, cubeY, cubeZ, 1.0, WIDTH, HEIGHT, 0, cubeX,
-                    cubeY, cubeZ, cubeWidth);
+    int PARTICLE_COUNT = 1000;
+    Particle3D particles[PARTICLE_COUNT];
+    for (int i = 0; i <= PARTICLE_COUNT; i++) {
+        // alloc on heap not stack :/, or store structs instead of pointers
+        // particles[i] = malloc(sizeof(Particle3D));
+        Particle3D_Init(&particles[i], cubeX, cubeY, cubeZ, 1.0, WIDTH, HEIGHT,
+                        0, cubeX, cubeY, cubeZ, cubeWidth);
+    }
+
+    Grid3D *grid = grid_create(cubeWidth, cubeWidth, cubeWidth, 10);
 
     // Mesh *CubeMesh2 = get_cube(0, 0, 0, 1);
     // CubeMesh2 = &shipMesh;
@@ -697,7 +706,7 @@ int main() {
                 break;
 
             case SDL_MOUSEMOTION:
-                // break;
+                break;
                 camera.yaw -= e.motion.xrel * mouseSensitivity;
                 camera.pitch -= e.motion.yrel * mouseSensitivity;
 
@@ -770,33 +779,43 @@ int main() {
             circle.y = next_py;
         }
 
-		Particle3D_Update(&p1, 1);
-		printf("Px - %f, Py %f, Pz %f\n", p1.position.x, p1.position.y, p1.position.z);
+        for (int i = 0; i < PARTICLE_COUNT; i++) {
+            Particle3D_Update(&particles[i], deltaTime);
+        }
+
+        grid_reset(grid);
+        grid_add_particles(grid, particles, PARTICLE_COUNT);
+
+        // printf("Px - %f, Py %f, Pz %f\n", p1.position.x, p1.position.y,
+        // p1.position.z);
 
         // pipeline for the particle
-        // apply view matrix
-        // tri->vecs[0] = mat4_mult_vec4_2(&LOOKAT_MTX, &tri->vecs[0]);
-        p1.position = mat4_mult_vec4_2(&LOOKAT_MTX, &p1.position);
-        // project triangle
-        p1.position = mat4_mult_vec4_2(&projection_matrix, &p1.position);
-        // ??? wtfs is this step i fogor
-        if (p1.position.w < 0) {
-            // normalise
-            double w = p1.position.w;
-            if (w != 0.0) {
-                p1.position.x /= w;
-                p1.position.y /= w;
-                p1.position.z /= w;
-                p1.position.w = 1.0;
-            }
-            // draw point
-            int xi = norm_to_screen_x(p1.position.x);
-            int yi = norm_to_screen_y(p1.position.y);
-            if (xi >= 0 && xi < WIDTH && yi >= 0 && yi < HEIGHT) {
-                int idx = yi * WIDTH + xi;
-                if (p1.position.z < zbuffer[idx]) {
-                    zbuffer[idx] = p1.position.z;
-                    draw_dot(xi, yi, COLOUR_WHITE);
+        for (int i = 0; i <= PARTICLE_COUNT; i++) {
+            // Particle3D_Update(particles[i], deltaTime);
+            Vec4 p1_upd = particles[i].position;
+            // apply view matrix
+            p1_upd = mat4_mult_vec4_2(&LOOKAT_MTX, &p1_upd);
+            // project triangle
+            p1_upd = mat4_mult_vec4_2(&projection_matrix, &p1_upd);
+            // ??? wtfs is this step i fogor
+            if (p1_upd.w < 0) {
+                // normalise
+                double w = p1_upd.w;
+                if (w != 0.0) {
+                    p1_upd.x /= w;
+                    p1_upd.y /= w;
+                    p1_upd.z /= w;
+                    p1_upd.w = 1.0;
+                }
+                // draw point
+                int xi = norm_to_screen_x(p1_upd.x);
+                int yi = norm_to_screen_y(p1_upd.y);
+                if (xi >= 0 && xi < WIDTH && yi >= 0 && yi < HEIGHT) {
+                    int idx = yi * WIDTH + xi;
+                    if (p1_upd.z < zbuffer[idx]) {
+                        zbuffer[idx] = p1_upd.z;
+                        draw_dot(xi, yi, COLOUR_WHITE);
+                    }
                 }
             }
         }
@@ -843,6 +862,8 @@ int main() {
     free(Single_tri);
     free(Single_tri2->tris);
     free(Single_tri2);
+
+    grid_free(grid);
 
     return 0;
 }

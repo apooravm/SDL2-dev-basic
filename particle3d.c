@@ -4,7 +4,11 @@
 void Particle3D_Init(Particle3D *p, double x, double y, double z, double size,
                      int screenW, int screenH, int screenD, int cubeX,
                      int cubeY, int cubeZ, int cubeWidth) {
-    p->position = (Vec4){x, y, z, 1.0};
+	int rand_X = cubeX + rand() % (cubeX + cubeWidth - cubeX + 1);
+	int rand_Y = cubeY + rand() % (cubeY + cubeWidth - cubeY + 1);
+	int rand_Z = cubeZ + rand() % (cubeZ + cubeWidth - cubeZ + 1);
+
+    p->position = (Vec4){rand_X, rand_Y, rand_Z, 1.0};
 
     double mult_fact = 1;
     p->velocity = (Vec4){((double)rand() / RAND_MAX - 0.5) * mult_fact,
