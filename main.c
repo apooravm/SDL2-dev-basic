@@ -8,25 +8,26 @@
 #include <SDL2/SDL_keycode.h>
 #include <SDL2/SDL_mouse.h>
 #include <SDL2/SDL_rect.h>
+#include <SDL2/SDL_render.h>
 #include <SDL2/SDL_scancode.h>
 #include <SDL2/SDL_surface.h>
 #include <SDL2/SDL_timer.h>
 #include <SDL2/SDL_version.h>
 #include <SDL2/SDL_video.h>
 #include <math.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
-#define WIDTH 640
-#define HEIGHT 480
+#define WIDTH 800
+#define HEIGHT 600
 #define COLOUR_WHITE 0xffffffff
 #define COLOUR_RED 0xffff0000
 #define COLOUR_GREEN 0x000fff00
 #define COLOUR_BLUE 0xff0000ff
 #define SQUARE_TRIANGLE_COUNT 2
 #define CUBE_TRIANGLE_COUNT 12
-
-SDL_Surface *SURFACE;
 
 struct Circle {
     double x;
@@ -58,23 +59,36 @@ typedef struct {
     Vec3 up;
 } Camera;
 
-int D_DIST = 1;
-int W_DEF = 1;
-double ASPECT_RATIO;
-double FOV_ANGLE = 90;
-double FOV;
-double Z_NORM;
-double fNear = 0.1f;
-double fFar = 10.0f;
-double fFov = 90.0f;
-double fFovRad;
-Camera camera = {{0.0, 0.0, 1.0}, 0.0, 0.0, 0.0, 0.0, 0.0};
-Mat4 projection_matrix = {0};
-Mat4 LOOKAT_MTX = {0}; // lookat matrix
-float *zbuffer = NULL;
+typedef struct {
+    SDL_Window *window;
+    SDL_Renderer *renderer;
+    SDL_Surface *surface;
+    int running;
 
-Mesh *SquareMesh;
-Mesh *CubeMesh;
+    Uint32 targetFrameTime;
+    float deltaTime;
+    Uint64 lastCounter;
+    Uint32 frameStartTicks;
+
+    float *zbuffer;
+
+    Mesh *objects[8];
+    int objectCount;
+
+    int W_DEF;
+
+    Particle3D *particles;
+    int particleCount;
+
+    Grid3D *grid;
+    Camera camera;
+
+    Mat4 Projection_MTX;
+    Mat4 LookAt_MTX;
+
+} App;
+
+App app;
 
 void dump_vertex_to_debug_file(float val) {
     FILE *debugFile = fopen("debug.txt", "a");
@@ -100,7 +114,8 @@ void FillCircle(struct Circle circle, Uint32 colour) {
 
             if (distance_squared < radius_squared) {
                 SDL_Rect pixel = (SDL_Rect){x, y, 1, 1};
-                SDL_FillRect(SURFACE, &pixel, colour);
+                // SDL_FillRect(SURFACE, &pixel, colour);
+                SDL_RenderDrawRect(app.renderer, &pixel);
             }
         }
     }
@@ -135,13 +150,14 @@ Mesh *get_square(double x, double y, double side, double z) {
 
     sq_mesh->numTris = SQUARE_TRIANGLE_COUNT;
 
-    sq_mesh->tris[0] = create_triangle(
-        create_vec4(x, y, z, W_DEF), create_vec4(x + side, y + side, z, W_DEF),
-        create_vec4(x, y + side, z, W_DEF));
+    sq_mesh->tris[0] =
+        create_triangle(create_vec4(x, y, z, app.W_DEF),
+                        create_vec4(x + side, y + side, z, app.W_DEF),
+                        create_vec4(x, y + side, z, app.W_DEF));
 
     sq_mesh->tris[1] = create_triangle(
-        create_vec4(x, y, z, W_DEF), create_vec4(x + side, y, z, W_DEF),
-        create_vec4(x + side, y + side, z, W_DEF));
+        create_vec4(x, y, z, app.W_DEF), create_vec4(x + side, y, z, app.W_DEF),
+        create_vec4(x + side, y + side, z, app.W_DEF));
 
     return sq_mesh;
 }
@@ -168,14 +184,15 @@ Mesh *get_cube(double x, double y, double z, double side) {
 
     // Define vertices of the cube
     Vec4 vertices[8] = {
-        create_vec4(x, y, z, W_DEF),               // 0: Bottom-front-left
-        create_vec4(x + side, y, z, W_DEF),        // 1: Bottom-front-right
-        create_vec4(x, y + side, z, W_DEF),        // 2: Top-front-left
-        create_vec4(x + side, y + side, z, W_DEF), // 3: Top-front-right
-        create_vec4(x, y, z + side, W_DEF),        // 4: Bottom-back-left
-        create_vec4(x + side, y, z + side, W_DEF), // 5: Bottom-back-right
-        create_vec4(x, y + side, z + side, W_DEF), // 6: Top-back-left
-        create_vec4(x + side, y + side, z + side, W_DEF) // 7: Top-back-right
+        create_vec4(x, y, z, app.W_DEF),               // 0: Bottom-front-left
+        create_vec4(x + side, y, z, app.W_DEF),        // 1: Bottom-front-right
+        create_vec4(x, y + side, z, app.W_DEF),        // 2: Top-front-left
+        create_vec4(x + side, y + side, z, app.W_DEF), // 3: Top-front-right
+        create_vec4(x, y, z + side, app.W_DEF),        // 4: Bottom-back-left
+        create_vec4(x + side, y, z + side, app.W_DEF), // 5: Bottom-back-right
+        create_vec4(x, y + side, z + side, app.W_DEF), // 6: Top-back-left
+        create_vec4(x + side, y + side, z + side,
+                    app.W_DEF) // 7: Top-back-right
     };
 
     // Define triangles for each face
@@ -202,8 +219,11 @@ void draw_dot(double x, double y, unsigned int COLOUR) {
     int side = 2;
     // double screenX = (x + 1) * 0.5 * WIDTH;
     // double screenY = (1 - y) * 0.5 * HEIGHT;
+    SDL_SetRenderDrawColor(app.renderer, 255, 255, 255, 255);
     SDL_Rect pixel = (SDL_Rect){x, y, side, side};
-    SDL_FillRect(SURFACE, &pixel, COLOUR);
+    // SDL_FillRect(SURFACE, &pixel, COLOUR);
+    // SDL_RenderDrawPoint(app.renderer, x, y);
+    SDL_RenderDrawRect(app.renderer, &pixel);
 }
 
 static inline int norm_to_screen_x(double x) {
@@ -244,8 +264,8 @@ void DrawLine(Vec4 *v1, Vec4 *v2) {
     while (1) {
         if (x1i >= 0 && x1i < WIDTH && y1i >= 0 && y1i < HEIGHT) {
             int idx = y1i * WIDTH + x1i;
-            if (z < zbuffer[idx]) {
-                zbuffer[idx] = z;
+            if (z < app.zbuffer[idx]) {
+                app.zbuffer[idx] = z;
                 draw_dot(x1i, y1i, COLOUR_WHITE);
             }
         }
@@ -354,8 +374,8 @@ void draw_triangle_fill(Triangle *tri, int c_idx) {
             if ((w0 >= 0 && w1 >= 0 && w2 >= 0) ||
                 (w0 <= 0 && w1 <= 0 && w2 <= 0)) {
                 int idx = y * WIDTH + x;
-                if (z < zbuffer[idx]) {
-                    zbuffer[idx] = z;
+                if (z < app.zbuffer[idx]) {
+                    app.zbuffer[idx] = z;
                     draw_dot(x, y, r);
                 }
             }
@@ -423,9 +443,9 @@ Vec4 mat4_mult_vec4_2(const Mat4 *mat, const Vec4 *vec) {
 }
 
 void project_triangle(Triangle *tri) {
-    tri->vecs[0] = mat4_mult_vec4_2(&projection_matrix, &tri->vecs[0]);
-    tri->vecs[1] = mat4_mult_vec4_2(&projection_matrix, &tri->vecs[1]);
-    tri->vecs[2] = mat4_mult_vec4_2(&projection_matrix, &tri->vecs[2]);
+    tri->vecs[0] = mat4_mult_vec4_2(&app.Projection_MTX, &tri->vecs[0]);
+    tri->vecs[1] = mat4_mult_vec4_2(&app.Projection_MTX, &tri->vecs[1]);
+    tri->vecs[2] = mat4_mult_vec4_2(&app.Projection_MTX, &tri->vecs[2]);
 }
 
 void translate_triangle(Triangle *tri, double val) {
@@ -436,14 +456,19 @@ void translate_triangle(Triangle *tri, double val) {
 
 // mat mult like this replaces translating and rotating the triangles separately
 void apply_view_matrix(Triangle *tri) {
-    tri->vecs[0] = mat4_mult_vec4_2(&LOOKAT_MTX, &tri->vecs[0]);
-    tri->vecs[1] = mat4_mult_vec4_2(&LOOKAT_MTX, &tri->vecs[1]);
-    tri->vecs[2] = mat4_mult_vec4_2(&LOOKAT_MTX, &tri->vecs[2]);
+    tri->vecs[0] = mat4_mult_vec4_2(&app.LookAt_MTX, &tri->vecs[0]);
+    tri->vecs[1] = mat4_mult_vec4_2(&app.LookAt_MTX, &tri->vecs[1]);
+    tri->vecs[2] = mat4_mult_vec4_2(&app.LookAt_MTX, &tri->vecs[2]);
 }
 
 void init_projection_mat() {
-    fFovRad = 1.0f / tanf(fFov * 0.5f / 180.0f * M_PI);
-    ASPECT_RATIO = (double)WIDTH / (double)HEIGHT;
+    double fNear = 0.1f;
+    double fFar = 10.0f;
+    double fFov = 90.0f;
+    double fFovRad = 1.0f / tanf(fFov * 0.5f / 180.0f * M_PI);
+    double ASPECT_RATIO = (double)WIDTH / (double)HEIGHT;
+    Mat4 projection_matrix = {0};
+    Mat4 LOOKAT_MTX = {0}; // lookat matrix
 
     printf("ffovrad: ");
     printf("%f\n", fFovRad);
@@ -462,6 +487,9 @@ void init_projection_mat() {
     // projection_matrix.m[3][2] = (-fFar * fNear) / (fFar - fNear);
     projection_matrix.m[3][2] = -1.0f;
     projection_matrix.m[3][3] = 0.0f;
+
+    app.Projection_MTX = projection_matrix;
+    app.LookAt_MTX = LOOKAT_MTX;
 }
 
 void normalise_triangle(Triangle *tri) {
@@ -476,7 +504,7 @@ void normalise_triangle(Triangle *tri) {
     }
 }
 
-int triangle_in_front(const Triangle *t) {
+int triangle_overlapped(const Triangle *t) {
     for (int i = 0; i < 3; i++) {
         if (t->vecs[i].w > 0)
             return 1;
@@ -503,41 +531,60 @@ Vec3 normalize(Vec3 v) {
 // dont understand the math for now :/
 void update_camera_basis() {
     Vec3 forward = {
-        cosf(camera.pitch) * sinf(camera.yaw), // x
-        sinf(camera.pitch),                    // y
-        cosf(camera.pitch) * cosf(camera.yaw)  // z
+        cosf(app.camera.pitch) * sinf(app.camera.yaw), // x
+        sinf(app.camera.pitch),                        // y
+        cosf(app.camera.pitch) * cosf(app.camera.yaw)  // z
     };
-    camera.forward = normalize(forward);
+    app.camera.forward = normalize(forward);
 
     Vec3 world_up = {0, 1, 0};
 
-    camera.right = normalize(cross(world_up, camera.forward));
-    camera.up = cross(camera.forward, camera.right);
+    app.camera.right = normalize(cross(world_up, app.camera.forward));
+    app.camera.up = cross(app.camera.forward, app.camera.right);
 
-    LOOKAT_MTX.m[0][0] = camera.right.x;
-    LOOKAT_MTX.m[0][1] = camera.right.y;
-    LOOKAT_MTX.m[0][2] = camera.right.z;
-    LOOKAT_MTX.m[0][3] = -dot(camera.right, camera.pos);
+    app.LookAt_MTX.m[0][0] = app.camera.right.x;
+    app.LookAt_MTX.m[0][1] = app.camera.right.y;
+    app.LookAt_MTX.m[0][2] = app.camera.right.z;
+    app.LookAt_MTX.m[0][3] = -dot(app.camera.right, app.camera.pos);
 
-    LOOKAT_MTX.m[1][0] = camera.up.x;
-    LOOKAT_MTX.m[1][1] = camera.up.y;
-    LOOKAT_MTX.m[1][2] = camera.up.z;
-    LOOKAT_MTX.m[1][3] = -dot(camera.up, camera.pos);
+    app.LookAt_MTX.m[1][0] = app.camera.up.x;
+    app.LookAt_MTX.m[1][1] = app.camera.up.y;
+    app.LookAt_MTX.m[1][2] = app.camera.up.z;
+    app.LookAt_MTX.m[1][3] = -dot(app.camera.up, app.camera.pos);
 
-    LOOKAT_MTX.m[2][0] = -camera.forward.x;
-    LOOKAT_MTX.m[2][1] = -camera.forward.y;
-    LOOKAT_MTX.m[2][2] = -camera.forward.z;
-    LOOKAT_MTX.m[2][3] = dot(camera.forward, camera.pos);
+    app.LookAt_MTX.m[2][0] = -app.camera.forward.x;
+    app.LookAt_MTX.m[2][1] = -app.camera.forward.y;
+    app.LookAt_MTX.m[2][2] = -app.camera.forward.z;
+    app.LookAt_MTX.m[2][3] = dot(app.camera.forward, app.camera.pos);
 
-    LOOKAT_MTX.m[3][0] = 0;
-    LOOKAT_MTX.m[3][1] = 0;
-    LOOKAT_MTX.m[3][2] = 0;
-    LOOKAT_MTX.m[3][3] = 1;
+    app.LookAt_MTX.m[3][0] = 0;
+    app.LookAt_MTX.m[3][1] = 0;
+    app.LookAt_MTX.m[3][2] = 0;
+    app.LookAt_MTX.m[3][3] = 1;
 }
 
-void clear_zbuffer() {
-    for (int i = 0; i < WIDTH * HEIGHT; i++)
-        zbuffer[i] = 1e9f;
+Mesh *get_triangle_mesh() {
+    // alloc for mesh itself
+    Mesh *single_tri_mesh = (Mesh *)malloc(sizeof(Mesh));
+    if (single_tri_mesh == NULL) {
+        printf("E: Failed to allocate memory for single tri.\n");
+        return NULL;
+    }
+
+    // Allocate memory for the triangles
+    single_tri_mesh->tris = (Triangle *)malloc(1 * sizeof(Triangle));
+    if (single_tri_mesh->tris == NULL) {
+        printf("E: Failed to allocate memory for Single Tri triangles.\n");
+        free(single_tri_mesh);
+        return NULL;
+    }
+
+    single_tri_mesh->numTris = 1;
+    single_tri_mesh->tris[0] = create_triangle(
+        (Vec4){0.0, 0.0, 0.4, app.W_DEF}, (Vec4){0.0, 1.0, 0.4, app.W_DEF},
+        (Vec4){1.0, 0.0, 0.4, app.W_DEF});
+
+    return single_tri_mesh;
 }
 
 static Triangle shipTris[] = {
@@ -578,328 +625,265 @@ static Triangle shipTris[] = {
 static Mesh shipMesh = {.tris = shipTris,
                         .numTris = sizeof(shipTris) / sizeof(Triangle)};
 
-int main() {
+void Init_App() {
     SDL_Init(SDL_INIT_VIDEO);
-    // window = NULL if SDL_CreateWindow throws error
-    SDL_Window *window =
-        SDL_CreateWindow("lmao", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                         WIDTH, HEIGHT, SDL_WINDOW_SHOWN);
-    if (!window) {
+    SDL_Window *w = SDL_CreateWindow("render this pls", SDL_WINDOWPOS_CENTERED,
+                                     SDL_WINDOWPOS_CENTERED, WIDTH, HEIGHT,
+                                     SDL_WINDOW_SHOWN);
+    SDL_Renderer *renderer = SDL_CreateRenderer(
+        w, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+
+    if (!renderer) {
         printf("Uh oh\n%s\n", SDL_GetError());
     }
 
     init_projection_mat();
-    zbuffer = malloc(sizeof(float) * WIDTH * HEIGHT);
-
-    SDL_Surface *surface = SDL_GetWindowSurface(window);
-    SURFACE = surface;
 
     // hides cursor, locks it to the window and gives relative motion, xrel and
     // yrel
-    SDL_SetRelativeMouseMode(SDL_TRUE);  // FPS mode
-    SDL_SetWindowGrab(window, SDL_TRUE); // Optional but recommended
+    SDL_SetRelativeMouseMode(SDL_TRUE); // FPS mode
+    // SDL_SetWindowGrab(window, SDL_TRUE); // Optional but recommended
     SDL_ShowCursor(SDL_DISABLE);
     if (SDL_SetRelativeMouseMode(SDL_TRUE) != 0) {
         printf("Relative mode failed: %s\n", SDL_GetError());
     }
 
-    struct Circle circle = {200, 0, 80};
-
     int running = 1;
-    int move_rate = 1;
+
+    app.renderer = renderer;
+    app.running = running;
+    app.zbuffer = malloc(sizeof(float) * WIDTH * HEIGHT);
+    app.window = w;
+    app.running = 1;
+    Camera camera = {{0.0, 0.0, 10.0}, 0.0, 0.0, 0.0, 0.0, 0.0};
+    app.camera = camera;
+    app.targetFrameTime = 1000 / 60; // 60 FPS
+    app.W_DEF = 1;
+}
+
+void App_Cleaup() {
+    SDL_DestroyRenderer(app.renderer);
+    SDL_DestroyWindow(app.window);
+    SDL_Quit();
+}
+
+// void handle_mouse(App* app, SDL_Event* e) {
+// float mouseSensitivity = 0.0030f;
+// camera.yaw -= e.motion.xrel * mouseSensitivity;
+// camera.pitch -= e.motion.yrel * mouseSensitivity;
+//
+// if (camera.pitch > 1.55f)
+//     camera.pitch = 1.55f;
+// if (camera.pitch < -1.55f)
+//     camera.pitch = -1.55f;
+//
+// break;
+//     app->camera.yaw   -= e->motion.xrel * app->mouseSensitivity;
+//     app->camera.pitch -= e->motion.yrel * app->mouseSensitivity;
+//     clamp_pitch(&app->camera);
+// }
+
+void app_handle_events(App *app) {
+    SDL_Event e;
+    while (SDL_PollEvent(&e)) {
+        if (e.type == SDL_QUIT)
+            app->running = 0;
+
+        if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE)
+            app->running = 0;
+
+        if (e.type == SDL_MOUSEMOTION)
+            break;
+        // handle_mouse(app, &e);
+    }
+}
+
+void camera_movement() {
+    const Uint8 *keys = SDL_GetKeyboardState(NULL);
+    float moveSpeed = 5.0f * app.deltaTime;
+    float pitch_yaw_sensitivity = 0.25f;
+
+    if (keys[SDL_SCANCODE_W]) {
+        app.camera.pos =
+            vec3_sub(app.camera.pos, vec3_scale(app.camera.forward, moveSpeed));
+    }
+    if (keys[SDL_SCANCODE_S]) {
+        app.camera.pos =
+            vec3_add(app.camera.pos, vec3_scale(app.camera.forward, moveSpeed));
+    }
+    if (keys[SDL_SCANCODE_A]) {
+        app.camera.pos =
+            vec3_add(app.camera.pos, vec3_scale(app.camera.right, moveSpeed));
+    }
+    if (keys[SDL_SCANCODE_D]) {
+        app.camera.pos =
+            vec3_sub(app.camera.pos, vec3_scale(app.camera.right, moveSpeed));
+    }
+    if (keys[SDL_SCANCODE_L]) {
+        app.camera.yaw += moveSpeed * pitch_yaw_sensitivity;
+    }
+    if (keys[SDL_SCANCODE_K]) {
+        // camera.yaw += moveSpeed * pitch_yaw_sensitivity;
+        app.camera.pitch -= moveSpeed * pitch_yaw_sensitivity;
+
+        if (app.camera.pitch > 1.55f)
+            app.camera.pitch = 1.55f;
+        if (app.camera.pitch < -1.55f)
+            app.camera.pitch = -1.55f;
+    }
+    if (keys[SDL_SCANCODE_H]) {
+        app.camera.yaw -= moveSpeed * pitch_yaw_sensitivity;
+    }
+    if (keys[SDL_SCANCODE_J]) {
+        // camera.yaw += moveSpeed * pitch_yaw_sensitivity;
+        app.camera.pitch += moveSpeed * pitch_yaw_sensitivity;
+
+        if (app.camera.pitch > 1.55f)
+            app.camera.pitch = 1.55f;
+        if (app.camera.pitch < -1.55f)
+            app.camera.pitch = -1.55f;
+    }
+}
+
+void begin_frame() {
+    // timing
+    Uint64 now = SDL_GetPerformanceCounter();
+    app.deltaTime =
+        (float)(now - app.lastCounter) / SDL_GetPerformanceFrequency();
+    app.lastCounter = now;
+    app.frameStartTicks = SDL_GetTicks();
+
+    // clear screen
+    SDL_SetRenderDrawColor(app.renderer, 0, 0, 0, 255);
+    SDL_RenderClear(app.renderer);
+
+    // clear zbuffer
+    for (int i = 0; i < WIDTH * HEIGHT; i++)
+        app.zbuffer[i] = INFINITY;
+}
+
+// present render, cap the framerate
+void end_frame() {
+    SDL_RenderPresent(app.renderer);
+
+    Uint32 frametime = SDL_GetTicks() - app.frameStartTicks;
+    if (frametime < app.targetFrameTime) {
+        SDL_Delay(app.targetFrameTime - frametime);
+    }
+}
+
+// render meshes
+void render_polygons(Mesh **objects, size_t count) {
+    for (size_t m = 0; m < count; m++) {
+        Mesh *mesh = objects[m];
+        for (size_t i = 0; i < mesh->numTris; i++) {
+            Triangle tri_updated = mesh->tris[i];
+            apply_view_matrix(&tri_updated);
+            project_triangle(&tri_updated);
+            if (triangle_overlapped(&tri_updated)) {
+                continue;
+            }
+            normalise_triangle(&tri_updated);
+            draw_triangle(&tri_updated);
+            // draw_triangle_fill(&tri_updated, m); // rasterization
+        }
+    }
+}
+
+void particles_loop(Particle3D *particles, size_t PARTICLE_COUNT) {
+    for (int i = 0; i < PARTICLE_COUNT; i++) {
+        Particle3D_Update(&particles[i], app.deltaTime);
+    }
+
+    grid_reset(app.grid);
+    grid_add_particles(app.grid, particles, PARTICLE_COUNT);
+
+    // pipeline for the particle
+    for (int i = 0; i < PARTICLE_COUNT; i++) {
+        // Particle3D_Update(particles[i], deltaTime);
+        Vec4 p1_upd = particles[i].position;
+        // apply view matrix
+        p1_upd = mat4_mult_vec4_2(&app.LookAt_MTX, &p1_upd);
+        // project triangle
+        p1_upd = mat4_mult_vec4_2(&app.Projection_MTX, &p1_upd);
+        // ??? wtfs is this step i fogor
+        if (p1_upd.w < 0) {
+            // normalise
+            double w = p1_upd.w;
+            if (w != 0.0) {
+                p1_upd.x /= w;
+                p1_upd.y /= w;
+                p1_upd.z /= w;
+                p1_upd.w = 1.0;
+            }
+            // draw point
+            int xi = norm_to_screen_x(p1_upd.x);
+            int yi = norm_to_screen_y(p1_upd.y);
+            if (xi >= 0 && xi < WIDTH && yi >= 0 && yi < HEIGHT) {
+                int idx = yi * WIDTH + xi;
+                if (p1_upd.z < app.zbuffer[idx]) {
+                    app.zbuffer[idx] = p1_upd.z;
+                    draw_dot(xi, yi, COLOUR_WHITE);
+                }
+            }
+        }
+    }
+}
+
+int main() {
     SDL_Event e;
 
+    Init_App();
     Vec4 v1 = {0.5, 0, 1, 1};
 
     float cubeX = 0;
     float cubeY = 0;
     float cubeZ = 0;
     float cubeWidth = 4.0;
-    CubeMesh = get_cube(cubeX, cubeY, cubeZ, cubeWidth);
-    double angle = 120.0f;
+
+    Mesh *CubeMesh = get_cube(cubeX, cubeY, cubeZ, cubeWidth);
+    Mesh *cubeMesh2 = get_cube(0.0, -5.0, 0.0, cubeWidth);
+
+    size_t OBJ_SIZE = 2;
+    Mesh *objects[OBJ_SIZE];
+    objects[0] = CubeMesh;
+    objects[1] = cubeMesh2;
 
     int PARTICLE_COUNT = 1000;
     Particle3D particles[PARTICLE_COUNT];
-    for (int i = 0; i <= PARTICLE_COUNT; i++) {
+    for (int i = 0; i < PARTICLE_COUNT; i++) {
         // alloc on heap not stack :/, or store structs instead of pointers
         // particles[i] = malloc(sizeof(Particle3D));
         Particle3D_Init(&particles[i], cubeX, cubeY, cubeZ, 1.0, WIDTH, HEIGHT,
                         0, cubeX, cubeY, cubeZ, cubeWidth);
     }
 
-    Grid3D *grid = grid_create(cubeWidth, cubeWidth, cubeWidth, 10);
+    app.grid = grid_create(cubeWidth, cubeWidth, cubeWidth, 10);
 
-    // Mesh *CubeMesh2 = get_cube(0, 0, 0, 1);
-    // CubeMesh2 = &shipMesh;
+    while (app.running) {
+        begin_frame();
 
-    Mesh *Single_tri2 = (Mesh *)malloc(sizeof(Mesh));
-    if (Single_tri2 == NULL) {
-        printf("Failed to allocate memory for single tri.\n");
-        return 1;
-    }
-
-    // Allocate memory for the triangles
-    Single_tri2->tris = (Triangle *)malloc(1 * sizeof(Triangle));
-    if (Single_tri2->tris == NULL) {
-        printf("Failed to allocate memory for Single Tri triangles.\n");
-        free(Single_tri2); // Free mesh if triangle allocation fails
-        return 1;
-    }
-
-    Single_tri2->numTris = 1;
-    Single_tri2->tris[0] = create_triangle((Vec4){0.0, 0.0, 0.4, W_DEF},
-                                           (Vec4){0.0, 1.0, 0.4, W_DEF},
-                                           (Vec4){1.0, 0.0, 0.4, W_DEF});
-
-    Mesh *Single_tri = (Mesh *)malloc(sizeof(Mesh));
-    if (Single_tri2 == NULL) {
-        printf("Failed to allocate memory for single tri.\n");
-        return 1;
-    }
-
-    // Allocate memory for the triangles
-    Single_tri->tris = (Triangle *)malloc(1 * sizeof(Triangle));
-    if (Single_tri->tris == NULL) {
-        printf("Failed to allocate memory for Single Tri triangles.\n");
-        free(Single_tri2); // Free mesh if triangle allocation fails
-        return 1;
-    }
-
-    Single_tri->numTris = 1;
-    Single_tri->tris[0] = create_triangle((Vec4){0.0, 0.0, 0.0, W_DEF},
-                                          (Vec4){0.0, 1.0, 0.0, W_DEF},
-                                          (Vec4){1.0, 0.0, 0.0, W_DEF});
-
-    int OBJ_SIZE = 1;
-    Mesh *objects[OBJ_SIZE];
-    objects[0] = CubeMesh;
-    // objects[0] = Single_tri2;
-    // objects[1] = Single_tri;
-    // objects[1] = CubeMesh;
-    // objects[1] = CubeMesh2;
-
-    const int FPS = 60;
-    const int frameDelay = 1000 / FPS;
-
-    Uint32 frameStart;
-    int frameTime;
-
-    Uint64 last = SDL_GetPerformanceCounter();
-    float deltaTime = 0.0f;
-    float mouseSensitivity = 0.0030f;
-    float pitch_yaw_sensitivity = 0.25f;
-
-    while (running) {
-        while (SDL_PollEvent(&e)) {
-            if (e.type == SDL_QUIT) {
-                running = 0;
-            }
-
-            switch (e.type) {
-            case SDL_KEYDOWN:
-                if (e.key.keysym.sym == SDLK_ESCAPE) {
-                    running = 0;
-                }
-                break;
-            case SDL_QUIT:
-                running = 0;
-                break;
-
-            case SDL_MOUSEMOTION:
-                break;
-                camera.yaw -= e.motion.xrel * mouseSensitivity;
-                camera.pitch -= e.motion.yrel * mouseSensitivity;
-
-                if (camera.pitch > 1.55f)
-                    camera.pitch = 1.55f;
-                if (camera.pitch < -1.55f)
-                    camera.pitch = -1.55f;
-
-                break;
-            }
-        }
-
-        SDL_FillRect(surface, NULL, SDL_MapRGB(surface->format, 0, 0, 0));
-
-        frameStart = SDL_GetTicks();
-
-        const Uint8 *keys = SDL_GetKeyboardState(NULL);
-
-        Uint64 now = SDL_GetPerformanceCounter();
-        deltaTime = (float)(now - last) / SDL_GetPerformanceFrequency();
-        last = now;
+        app_handle_events(&app);
 
         update_camera_basis();
+        camera_movement();
 
-        float moveSpeed = 5.0f * deltaTime;
+		particles_loop(particles, PARTICLE_COUNT);
+        render_polygons(objects, OBJ_SIZE);
 
-        if (keys[SDL_SCANCODE_W]) {
-            camera.pos =
-                vec3_sub(camera.pos, vec3_scale(camera.forward, moveSpeed));
-        }
-        if (keys[SDL_SCANCODE_S]) {
-            camera.pos =
-                vec3_add(camera.pos, vec3_scale(camera.forward, moveSpeed));
-        }
-        if (keys[SDL_SCANCODE_A]) {
-            camera.pos =
-                vec3_add(camera.pos, vec3_scale(camera.right, moveSpeed));
-        }
-        if (keys[SDL_SCANCODE_D]) {
-            camera.pos =
-                vec3_sub(camera.pos, vec3_scale(camera.right, moveSpeed));
-        }
-        if (keys[SDL_SCANCODE_L]) {
-            camera.yaw += moveSpeed * pitch_yaw_sensitivity;
-        }
-        if (keys[SDL_SCANCODE_K]) {
-            // camera.yaw += moveSpeed * pitch_yaw_sensitivity;
-            camera.pitch -= moveSpeed * pitch_yaw_sensitivity;
-
-            if (camera.pitch > 1.55f)
-                camera.pitch = 1.55f;
-            if (camera.pitch < -1.55f)
-                camera.pitch = -1.55f;
-        }
-        if (keys[SDL_SCANCODE_H]) {
-            camera.yaw -= moveSpeed * pitch_yaw_sensitivity;
-        }
-        if (keys[SDL_SCANCODE_J]) {
-            // camera.yaw += moveSpeed * pitch_yaw_sensitivity;
-            camera.pitch += moveSpeed * pitch_yaw_sensitivity;
-
-            if (camera.pitch > 1.55f)
-                camera.pitch = 1.55f;
-            if (camera.pitch < -1.55f)
-                camera.pitch = -1.55f;
-        }
-
-        double next_py = circle.y + move_rate;
-        if (next_py < 480) {
-            circle.y = next_py;
-        }
-
-        for (int i = 0; i < PARTICLE_COUNT; i++) {
-            Particle3D_Update(&particles[i], deltaTime);
-        }
-
-        grid_reset(grid);
-        grid_add_particles(grid, particles, PARTICLE_COUNT);
-
-        // printf("Px - %f, Py %f, Pz %f\n", p1.position.x, p1.position.y,
-        // p1.position.z);
-
-        // pipeline for the particle
-        for (int i = 0; i <= PARTICLE_COUNT; i++) {
-            // Particle3D_Update(particles[i], deltaTime);
-            Vec4 p1_upd = particles[i].position;
-            // apply view matrix
-            p1_upd = mat4_mult_vec4_2(&LOOKAT_MTX, &p1_upd);
-            // project triangle
-            p1_upd = mat4_mult_vec4_2(&projection_matrix, &p1_upd);
-            // ??? wtfs is this step i fogor
-            if (p1_upd.w < 0) {
-                // normalise
-                double w = p1_upd.w;
-                if (w != 0.0) {
-                    p1_upd.x /= w;
-                    p1_upd.y /= w;
-                    p1_upd.z /= w;
-                    p1_upd.w = 1.0;
-                }
-                // draw point
-                int xi = norm_to_screen_x(p1_upd.x);
-                int yi = norm_to_screen_y(p1_upd.y);
-                if (xi >= 0 && xi < WIDTH && yi >= 0 && yi < HEIGHT) {
-                    int idx = yi * WIDTH + xi;
-                    if (p1_upd.z < zbuffer[idx]) {
-                        zbuffer[idx] = p1_upd.z;
-                        draw_dot(xi, yi, COLOUR_WHITE);
-                    }
-                }
-            }
-        }
-
-        // draw polygons
-        for (int m = 0; m < OBJ_SIZE; m++) {
-            Mesh *mesh = objects[m];
-            for (int i = 0; i < mesh->numTris; i++) {
-                Triangle tri_updated = mesh->tris[i];
-                // rotate_triangle(&tri_updated, 0, 0.0 * 0.5, 0 * 0.33);
-                // translate_triangle(&tri_updated, 1.0);
-                apply_view_matrix(&tri_updated);
-                project_triangle(&tri_updated);
-                if (triangle_in_front(&tri_updated)) {
-                    continue;
-                }
-                normalise_triangle(&tri_updated);
-                draw_triangle(&tri_updated);
-                // draw_triangle_fill(&tri_updated, m); // rasterization
-            }
-        }
-
-        clear_zbuffer();
-
-        angle += 0.02;
-
-        // FillCircle(surface, circle, COLOUR_WHITE);
-        SDL_UpdateWindowSurface(window);
-        frameTime = SDL_GetTicks() - frameStart;
-
-        if (frameDelay > frameTime) {
-            SDL_Delay(frameDelay - frameTime);
-        }
+        end_frame();
     }
 
-    // free(CubeMesh2->tris);
-    // free(CubeMesh2);
+    free(cubeMesh2->tris);
+    free(cubeMesh2);
 
     free(CubeMesh->tris);
     free(CubeMesh);
 
-    free(zbuffer);
-    free(Single_tri->tris);
-    free(Single_tri);
-    free(Single_tri2->tris);
-    free(Single_tri2);
+    free(app.zbuffer);
+    grid_free(app.grid);
 
-    grid_free(grid);
+    App_Cleaup();
 
     return 0;
 }
-
-/**
-      case SDL_KEYDOWN:
-        if (e.key.keysym.sym == SDLK_ESCAPE) {
-          running = 0;
-        }
-
-        if (e.key.keysym.sym == SDLK_w) {
-          printf("w key pressed\n");
-        }
-        break;
-
-      case SDL_KEYUP:
-        if (e.key.keysym.sym == SDLK_w) {
-          printf("w key released\n");
-        }
-        break;
-
-      case SDL_MOUSEMOTION:
-        printf("Mouse moved: x=%d y=%d | dx=%d dy=%d\n", e.motion.x, e.motion.y,
-               e.motion.xrel, e.motion.yrel);
-        break;
-
-      case SDL_MOUSEBUTTONDOWN:
-        if (e.button.button == SDL_BUTTON_LEFT) {
-          printf("Left mouse button pressed at %d, %d\n", e.button.x,
-                 e.button.y);
-        }
-        break;
-
-      case SDL_MOUSEBUTTONUP:
-        if (e.button.button == SDL_BUTTON_LEFT) {
-          printf("Left mouse button released\n");
-        }
-        break;
-        **/
