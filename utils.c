@@ -15,6 +15,21 @@ Vec3 vec3_sub(Vec3 a, Vec3 b) {
     return (Vec3){a.x - b.x, a.y - b.y, a.z - b.z};
 }
 
+// float vec3_dot(Vec3 a, Vec3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+
+Vec3 vec3_cross(Vec3 a, Vec3 b) {
+    return (Vec3){a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z,
+                  a.x * b.y - a.y * b.x};
+}
+
+Vec3 vec3_normalize(Vec3 v) {
+    float len = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
+    if (len == 0.0f)
+        return v;
+
+    return (Vec3){v.x / len, v.y / len, v.z / len};
+}
+
 Vec4 vec4_sub(Vec4 a, Vec4 b) {
     return (Vec4){a.x - b.x, a.y - b.y, a.z - b.z, 1};
 }
@@ -24,24 +39,36 @@ Vec4 vec4_add(Vec4 a, Vec4 b) {
     return result;
 }
 
-Vec4 vec4_div(Vec4 a, int v) {
-	return (Vec4){a.x / v, a.y / v, a.z / v, 1};
+Vec4 vec4_div(Vec4 a, int v) { return (Vec4){a.x / v, a.y / v, a.z / v, 1}; }
+
+Vec4 vec4_mult(Vec4 a, int v) { return (Vec4){a.x * v, a.y * v, a.z * v, 1}; }
+
+// returns the normal perpendicular to a and b, 
+// while dot product gives how much 2 vecs point in same dir
+Vec4 vec4_cross(Vec4 a, Vec4 b) {
+    return (Vec4){a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z,
+                  a.x * b.y - a.y * b.x, 0.0f};
 }
 
-Vec4 vec4_mult(Vec4 a, int v) {
-	return (Vec4){a.x * v, a.y * v, a.z * v, 1};
+float vec4_dot(Vec4 a, Vec4 b) {
+    return a.x * b.x +
+           a.y * b.y +
+           a.z * b.z +
+           a.w * b.w;
 }
 
-float vec4_length(Vec4 v)
-{
-    return sqrtf(v.x * v.x +
-                 v.y * v.y +
-                 v.z * v.z +
-                 v.w * v.w);
+float vec4_dot_ptr(const Vec4* a, const Vec4* b) {
+    return a->x * b->x +
+           a->y * b->y +
+           a->z * b->z +
+           a->w * b->w;
 }
 
-Vec4 vec4_normalize(Vec4 v)
-{
+float vec4_length(Vec4 v) {
+    return sqrtf(v.x * v.x + v.y * v.y + v.z * v.z + v.w * v.w);
+}
+
+Vec4 vec4_normalize(Vec4 v) {
     float len = vec4_length(v);
 
     if (len > 0.00001f) {
@@ -51,8 +78,7 @@ Vec4 vec4_normalize(Vec4 v)
         v.y *= inv;
         v.z *= inv;
         v.w *= inv;
-    }
-    else {
+    } else {
         v.x = 0.0f;
         v.y = 0.0f;
         v.z = 0.0f;
@@ -82,8 +108,7 @@ Vec3 vec3_scale(Vec3 v, float s) { return (Vec3){v.x * s, v.y * s, v.z * s}; }
 
 double vec3_dot(Vec3 a, Vec3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
 
-float vec3_distance(Vec3 a, Vec3 b)
-{
+float vec3_distance(Vec3 a, Vec3 b) {
     float dx = a.x - b.x;
     float dy = a.y - b.y;
     float dz = a.z - b.z;

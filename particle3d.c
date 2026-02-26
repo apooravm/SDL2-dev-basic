@@ -73,6 +73,7 @@ void Particle3D_Update(Particle3D *p, double dt) {
     p->position.z += p->velocity.z * dt;
 
     double half = p->size / 2.0;
+	half = 0.4;
 
     // Bounce X
     if (p->position.x > p->cubeX + p->cubeWidth - half) {

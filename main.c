@@ -16,12 +16,13 @@
 #include <SDL2/SDL_video.h>
 #include <math.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#define WIDTH 800
-#define HEIGHT 600
+#define WIDTH 640
+#define HEIGHT 480
 #define COLOUR_WHITE 0xffffffff
 #define COLOUR_RED 0xffff0000
 #define COLOUR_GREEN 0x000fff00
@@ -37,6 +38,8 @@ struct Circle {
 
 typedef struct {
     Vec4 vecs[3];
+    Vec4 normal;
+    uint32_t shade_colour;
 } Triangle;
 
 typedef struct {
@@ -86,6 +89,7 @@ typedef struct {
     Mat4 Projection_MTX;
     Mat4 LookAt_MTX;
 
+    Vec4 light_dir;
 } App;
 
 App app;
@@ -125,8 +129,18 @@ Vec4 create_vec4(double x, double y, double z, double w) {
     Vec4 vec = {x, y, z, w};
     return vec;
 }
+
+Vec4 get_triangle_normal(Triangle *tri) {
+    Vec4 edge1 = vec4_sub(tri->vecs[1], tri->vecs[0]);
+    Vec4 edge2 = vec4_sub(tri->vecs[2], tri->vecs[0]);
+    Vec4 normal = vec4_normalize(vec4_cross(edge1, edge2));
+    return normal;
+}
+
 Triangle create_triangle(Vec4 v0, Vec4 v1, Vec4 v2) {
     Triangle tri = {{v0, v1, v2}};
+    tri.normal = get_triangle_normal(&tri);
+	tri.shade_colour = 0x00FFFFFF;
     return tri;
 }
 
@@ -215,11 +229,15 @@ Mesh *get_cube(double x, double y, double z, double side) {
 }
 
 // convert normalized cartesian point to screen point
-void draw_dot(double x, double y, unsigned int COLOUR) {
+void draw_dot(double x, double y, uint32_t SHADE_COLOUR) {
+    uint8_t r = (SHADE_COLOUR >> 16) & 0xFF;
+    uint8_t g = (SHADE_COLOUR >> 8) & 0xFF;
+    uint8_t b = SHADE_COLOUR & 0xFF;
+
     int side = 2;
     // double screenX = (x + 1) * 0.5 * WIDTH;
     // double screenY = (1 - y) * 0.5 * HEIGHT;
-    SDL_SetRenderDrawColor(app.renderer, 255, 255, 255, 255);
+    SDL_SetRenderDrawColor(app.renderer, r, g, b, 255);
     SDL_Rect pixel = (SDL_Rect){x, y, side, side};
     // SDL_FillRect(SURFACE, &pixel, COLOUR);
     // SDL_RenderDrawPoint(app.renderer, x, y);
@@ -242,7 +260,7 @@ int max(int v1, int v2) {
     return v2;
 }
 
-void DrawLine(Vec4 *v1, Vec4 *v2) {
+void DrawLine(Vec4 *v1, Vec4 *v2, uint32_t *shade_colour) {
     // Convert normalized coords to screen pixels
     int x1i = norm_to_screen_x(v1->x);
     int y1i = norm_to_screen_y(v1->y);
@@ -266,7 +284,7 @@ void DrawLine(Vec4 *v1, Vec4 *v2) {
             int idx = y1i * WIDTH + x1i;
             if (z < app.zbuffer[idx]) {
                 app.zbuffer[idx] = z;
-                draw_dot(x1i, y1i, COLOUR_WHITE);
+                draw_dot(x1i, y1i, *shade_colour);
             }
         }
 
@@ -289,9 +307,9 @@ void DrawLine(Vec4 *v1, Vec4 *v2) {
 }
 
 void draw_triangle(Triangle *tri) {
-    DrawLine(&tri->vecs[0], &tri->vecs[1]);
-    DrawLine(&tri->vecs[1], &tri->vecs[2]);
-    DrawLine(&tri->vecs[2], &tri->vecs[0]);
+    DrawLine(&tri->vecs[0], &tri->vecs[1], &tri->shade_colour);
+    DrawLine(&tri->vecs[1], &tri->vecs[2], &tri->shade_colour);
+    DrawLine(&tri->vecs[2], &tri->vecs[0], &tri->shade_colour);
 }
 
 static inline float edge_function(float ax, float ay, float bx, float by,
@@ -376,7 +394,7 @@ void draw_triangle_fill(Triangle *tri, int c_idx) {
                 int idx = y * WIDTH + x;
                 if (z < app.zbuffer[idx]) {
                     app.zbuffer[idx] = z;
-                    draw_dot(x, y, r);
+                    draw_dot(x, y, tri->shade_colour);
                 }
             }
         }
@@ -512,21 +530,6 @@ int triangle_overlapped(const Triangle *t) {
     return 0;
 }
 
-float dot(Vec3 a, Vec3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
-
-Vec3 cross(Vec3 a, Vec3 b) {
-    return (Vec3){a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z,
-                  a.x * b.y - a.y * b.x};
-}
-
-Vec3 normalize(Vec3 v) {
-    float len = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
-    if (len == 0.0f)
-        return v;
-
-    return (Vec3){v.x / len, v.y / len, v.z / len};
-}
-
 // Update the View/LookAt matrix every animation loop
 // dont understand the math for now :/
 void update_camera_basis() {
@@ -535,27 +538,27 @@ void update_camera_basis() {
         sinf(app.camera.pitch),                        // y
         cosf(app.camera.pitch) * cosf(app.camera.yaw)  // z
     };
-    app.camera.forward = normalize(forward);
+    app.camera.forward = vec3_normalize(forward);
 
     Vec3 world_up = {0, 1, 0};
 
-    app.camera.right = normalize(cross(world_up, app.camera.forward));
-    app.camera.up = cross(app.camera.forward, app.camera.right);
+    app.camera.right = vec3_normalize(vec3_cross(world_up, app.camera.forward));
+    app.camera.up = vec3_cross(app.camera.forward, app.camera.right);
 
     app.LookAt_MTX.m[0][0] = app.camera.right.x;
     app.LookAt_MTX.m[0][1] = app.camera.right.y;
     app.LookAt_MTX.m[0][2] = app.camera.right.z;
-    app.LookAt_MTX.m[0][3] = -dot(app.camera.right, app.camera.pos);
+    app.LookAt_MTX.m[0][3] = -vec3_dot(app.camera.right, app.camera.pos);
 
     app.LookAt_MTX.m[1][0] = app.camera.up.x;
     app.LookAt_MTX.m[1][1] = app.camera.up.y;
     app.LookAt_MTX.m[1][2] = app.camera.up.z;
-    app.LookAt_MTX.m[1][3] = -dot(app.camera.up, app.camera.pos);
+    app.LookAt_MTX.m[1][3] = -vec3_dot(app.camera.up, app.camera.pos);
 
     app.LookAt_MTX.m[2][0] = -app.camera.forward.x;
     app.LookAt_MTX.m[2][1] = -app.camera.forward.y;
     app.LookAt_MTX.m[2][2] = -app.camera.forward.z;
-    app.LookAt_MTX.m[2][3] = dot(app.camera.forward, app.camera.pos);
+    app.LookAt_MTX.m[2][3] = vec3_dot(app.camera.forward, app.camera.pos);
 
     app.LookAt_MTX.m[3][0] = 0;
     app.LookAt_MTX.m[3][1] = 0;
@@ -630,8 +633,8 @@ void Init_App() {
     SDL_Window *w = SDL_CreateWindow("render this pls", SDL_WINDOWPOS_CENTERED,
                                      SDL_WINDOWPOS_CENTERED, WIDTH, HEIGHT,
                                      SDL_WINDOW_SHOWN);
-    SDL_Renderer *renderer = SDL_CreateRenderer(
-        w, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    SDL_Renderer *renderer =
+        SDL_CreateRenderer(w, -1, SDL_RENDERER_ACCELERATED);
 
     if (!renderer) {
         printf("Uh oh\n%s\n", SDL_GetError());
@@ -641,17 +644,15 @@ void Init_App() {
 
     // hides cursor, locks it to the window and gives relative motion, xrel and
     // yrel
-    SDL_SetRelativeMouseMode(SDL_TRUE); // FPS mode
+    // SDL_SetRelativeMouseMode(SDL_TRUE); // FPS mode
     // SDL_SetWindowGrab(window, SDL_TRUE); // Optional but recommended
     SDL_ShowCursor(SDL_DISABLE);
     if (SDL_SetRelativeMouseMode(SDL_TRUE) != 0) {
         printf("Relative mode failed: %s\n", SDL_GetError());
     }
 
-    int running = 1;
-
     app.renderer = renderer;
-    app.running = running;
+    app.running = 1;
     app.zbuffer = malloc(sizeof(float) * WIDTH * HEIGHT);
     app.window = w;
     app.running = 1;
@@ -659,6 +660,8 @@ void Init_App() {
     app.camera = camera;
     app.targetFrameTime = 1000 / 60; // 60 FPS
     app.W_DEF = 1;
+    app.lastCounter = SDL_GetPerformanceCounter();
+    app.light_dir = vec4_normalize((Vec4){0, 0, -1});
 }
 
 void App_Cleaup() {
@@ -692,8 +695,8 @@ void app_handle_events(App *app) {
         if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE)
             app->running = 0;
 
-        if (e.type == SDL_MOUSEMOTION)
-            break;
+        // if (e.type == SDL_MOUSEMOTION)
+        //     break;
         // handle_mouse(app, &e);
     }
 }
@@ -760,6 +763,19 @@ void begin_frame() {
     // clear zbuffer
     for (int i = 0; i < WIDTH * HEIGHT; i++)
         app.zbuffer[i] = INFINITY;
+
+    // print FPS
+    // static float fpsTimer = 0.0f;
+    // static int fpsCounter = 0;
+    //
+    // fpsTimer += app.deltaTime;
+    // fpsCounter++;
+    //
+    // if (fpsTimer >= 1.0f) {
+    //     printf("FPS: %d\n", fpsCounter);
+    //     fpsCounter = 0;
+    //     fpsTimer = 0.0f;
+    // }
 }
 
 // present render, cap the framerate
@@ -772,13 +788,44 @@ void end_frame() {
     }
 }
 
+uint32_t shade_color(uint32_t color, float intensity) {
+    uint8_t r = (color >> 16) & 0xFF;
+    uint8_t g = (color >> 8) & 0xFF;
+    uint8_t b = (color) & 0xFF;
+
+    r = (uint8_t)(r * intensity);
+    g = (uint8_t)(g * intensity);
+    b = (uint8_t)(b * intensity);
+
+    return (r << 16) | (g << 8) | b;
+}
+
 // render meshes
 void render_polygons(Mesh **objects, size_t count) {
+    uint32_t base_colour = 0x00C8C8C8;
+
     for (size_t m = 0; m < count; m++) {
         Mesh *mesh = objects[m];
         for (size_t i = 0; i < mesh->numTris; i++) {
             Triangle tri_updated = mesh->tris[i];
             apply_view_matrix(&tri_updated);
+
+            // lighting
+            //  Vec4 normal = get_triangle_normal(&tri_updated);
+            //  float light_intensity = vec4_dot_ptr(&normal,
+            //  &app.light_dir); if (light_intensity <= 0)
+            //      continue;
+            //  if (light_intensity >= 1) {
+            //      light_intensity = 1;
+            //  }
+            //  float ambient = 0.05f;
+            //  float final = ambient + light_intensity;
+            // final = 1;
+            //  if (final > 1)
+            //      final = 1;
+            //  tri_updated.shade_colour =
+            //      shade_color(base_colour, final);
+
             project_triangle(&tri_updated);
             if (triangle_overlapped(&tri_updated)) {
                 continue;
@@ -850,12 +897,12 @@ int main() {
     objects[1] = cubeMesh2;
 
     int PARTICLE_COUNT = 1000;
-    Particle3D particles[PARTICLE_COUNT];
+    app.particles = (Particle3D *)malloc(PARTICLE_COUNT * sizeof(Particle3D));
     for (int i = 0; i < PARTICLE_COUNT; i++) {
         // alloc on heap not stack :/, or store structs instead of pointers
         // particles[i] = malloc(sizeof(Particle3D));
-        Particle3D_Init(&particles[i], cubeX, cubeY, cubeZ, 1.0, WIDTH, HEIGHT,
-                        0, cubeX, cubeY, cubeZ, cubeWidth);
+        Particle3D_Init(&app.particles[i], cubeX, cubeY, cubeZ, 1.0, WIDTH,
+                        HEIGHT, 0, cubeX, cubeY, cubeZ, cubeWidth);
     }
 
     app.grid = grid_create(cubeWidth, cubeWidth, cubeWidth, 10);
@@ -865,10 +912,10 @@ int main() {
 
         app_handle_events(&app);
 
-        update_camera_basis();
         camera_movement();
+        update_camera_basis();
 
-		particles_loop(particles, PARTICLE_COUNT);
+        particles_loop(app.particles, PARTICLE_COUNT);
         render_polygons(objects, OBJ_SIZE);
 
         end_frame();
@@ -881,6 +928,7 @@ int main() {
     free(CubeMesh);
 
     free(app.zbuffer);
+    free(app.particles);
     grid_free(app.grid);
 
     App_Cleaup();
